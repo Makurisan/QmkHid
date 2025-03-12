@@ -189,7 +189,7 @@ void hid_close(HID& hid) {
 }
 
 bool hid_connect(HID &hid) {
-    auto _hid = hid_open(hid.info.VendorID, hid.info.ProductID);
+    auto _hid = hid_open(hid.info.VendorID, hid.info.ProductID, hid.info.VersionNumber);
     if (!_hid)
 		return false;
 	hid = _hid.value();

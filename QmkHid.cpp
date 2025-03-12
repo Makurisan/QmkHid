@@ -321,16 +321,6 @@ void CreateChildWindow() {
     ShowWindow(hChildWnd, SW_HIDE);
 }
 
-std::string extractSerialNumber(const std::string& deviceName) {
-    std::string serialNumber;
-    size_t startPos = deviceName.find_last_of('&');
-    size_t endPos = deviceName.find_last_of('#');
-    if (startPos != std::string::npos && endPos != std::string::npos && startPos < endPos) {
-        serialNumber = deviceName.substr(startPos + 1, endPos - startPos - 1);
-    }
-    return serialNumber;
-}
-
 bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
     std::string lowDevName = deviceName;
     std::transform(lowDevName.begin(), lowDevName.end(), lowDevName.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -338,8 +328,6 @@ bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
     std::stringstream vidStream, pidStream;
     vidStream << "vid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.VendorID;
     pidStream << "pid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.ProductID;
-
-    std::string serialNumber = extractSerialNumber(lowDevName);
 
     return strstr(lowDevName.c_str(), vidStream.str().c_str()) && strstr(lowDevName.c_str(), pidStream.str().c_str());
 }

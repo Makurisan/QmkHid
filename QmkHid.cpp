@@ -21,8 +21,6 @@ std::mutex mtx;
 using json = nlohmann::json;
 using namespace std::chrono;
 
-#define VID 0x35EF //0xFEED QMK default VID
-#define PID 0x1308 //0x1308 Your keyboard PID
 
 
 #define WM_TRAYICON (WM_USER + 1)
@@ -34,6 +32,7 @@ using namespace std::chrono;
 #define IDT_LAYER_SWITCH 1014
 #define IDT_HIDE_WINDOW 1015
 
+
 typedef struct _HIDData {
 	HID hid;
     std::vector<BYTE> readData;
@@ -42,9 +41,13 @@ typedef struct _HIDData {
     HWND hChildWnd;
 }HIDData;
 
+#define VID 0x35EF //0xFEED QMK default VID
+#define PID 0x1308 //0x1308 Your keyboard PID
+
 HIDData hidData = {
-    .hid = { INVALID_HANDLE_VALUE, 0, 0 },
-    .readData = {},
+    .hid = { INVALID_HANDLE_VALUE, 0, 0, 
+            { sizeof(HIDD_ATTRIBUTES), VID, PID, 0 } },
+     .readData = {},
     .writeData = {},
     .hTrayWnd = nullptr,
     .hChildWnd = nullptr,
@@ -310,11 +313,15 @@ void CreateChildWindow() {
     ShowWindow(hChildWnd, SW_HIDE);
 }
 
-// Function to convert a string to lowercase
-std::string toLower(const std::string& str) {
-    std::string lowerStr = str;
-    std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), [](unsigned char c) { return std::tolower(c); });
-    return lowerStr;
+bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
+    std::string lowDevName = deviceName;
+    std::transform(lowDevName.begin(), lowDevName.end(), lowDevName.begin(), [](unsigned char c) { return std::tolower(c); });
+
+    std::stringstream vidStream, pidStream;
+    vidStream << "vid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.VendorID;
+    pidStream << "pid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.ProductID;
+
+    return strstr(lowDevName.c_str(), vidStream.str().c_str()) && strstr(lowDevName.c_str(), pidStream.str().c_str());
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -324,10 +331,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
             if (pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
-                std::string deviceName = toLower(pDevInf->dbcc_name);
                 // Check if the device matches our VID and PID
-                if (strstr(deviceName.c_str(), "vid_35ef") && strstr(deviceName.c_str(), "pid_1308")) {
-                    // Handle device removal
+                if (isMatchingDevice(pDevInf->dbcc_name, hidData)) {
+					// Remove comes more than one, because of the multiple interfaces
                     if (hidData.hid.handle != INVALID_HANDLE_VALUE) {
                         hid_close(hidData.hid);
                         hidData.hid.handle = INVALID_HANDLE_VALUE;
@@ -340,17 +346,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
             if (pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
-                std::string deviceName = toLower(pDevInf->dbcc_name);
                 // Check if the device matches our VID and PID
-                if (strstr(deviceName.c_str(), "vid_35ef") && strstr(deviceName.c_str(), "pid_1308")) {
+                // Arrival comes more than one, because of the multiple interfaces
+                if (isMatchingDevice(pDevInf->dbcc_name, hidData) &&
+                    hidData.hid.handle == INVALID_HANDLE_VALUE) {
                     // Handle device arrival
                     if (OpenHidDevice(hidData, false)) {
-                        ;// hidData.notificationShown = false; // Reset the flag
+                        ;
                     }
                 }
             }
         }
-        break;        break;
+        break;
     case WM_TRAYICON:
         if (lParam == WM_RBUTTONDOWN) {
             POINT curPoint;

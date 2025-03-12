@@ -26,9 +26,9 @@ typedef void (*HIDReadCallback)(const std::vector<BYTE>& data, void* userData);
 
 const std::string hid_error(HID& hid);
 std::optional<HID> hid_open(USHORT vid, USHORT pid);
-void hid_vopen(std::vector<HID>& devices);
 void hid_close(HID& hid);
-bool hid_connect(HID &hid, USHORT vid, USHORT pid);
+bool hid_connect(HID& hid);
+bool hid_connect(std::vector<HID>& hids);
 bool hid_read(HID& hid, std::vector<BYTE>& data);
 void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
 void hid_read_cp(HID& hid, HIDReadCallback callback, void* userData);

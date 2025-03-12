@@ -12,6 +12,7 @@
 #include <hidclass.h>
 #include <thread>
 #include <mutex>
+#include "Resource.h"
 
 std::mutex mtx;
 
@@ -39,6 +40,7 @@ typedef struct _HIDData {
     std::vector<BYTE> writeData;
     HWND hTrayWnd;
     HWND hChildWnd;
+    HICON iTrayIcon;
 }HIDData;
 
 #define VID 0x35EF //0xFEED QMK default VID
@@ -51,12 +53,16 @@ HIDData hidData = {
     .writeData = {},
     .hTrayWnd = nullptr,
     .hChildWnd = nullptr,
+    .iTrayIcon = nullptr,
 };
 
 NOTIFYICONDATA nid;
 HWND hTrayWnd;
 HWND hChildWnd;
 int currentLayer = 0;
+HICON hQMKAppIcon;
+
+
 std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 
 // Report ID
@@ -131,6 +137,13 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
     return hIcon;
 }
 
+
+void UpdateTrayIcon() {
+    nid.uFlags = NIF_ICON; // Set the flag to update only the icon
+    nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
+}
+
 void InitNotifyIconData() {
     memset(&nid, 0, sizeof(NOTIFYICONDATA));
     nid.cbSize = sizeof(NOTIFYICONDATA);
@@ -138,15 +151,19 @@ void InitNotifyIconData() {
     nid.uID = ID_TRAY_APP_ICON;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_INFO;
     nid.uCallbackMessage = WM_TRAYICON;
-    nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
+//nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
     strcpy_s(nid.szTip, "Foot Switch\nomrsh31h");
+    hidData.iTrayIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_QMKHID));
 }
 
 void ShowNotification(const char* title, const char* message) {
-    nid.uFlags = NIF_INFO;
+    nid.uFlags = NIF_INFO | NIF_ICON;
     strcpy_s(nid.szInfoTitle, title);
     strcpy_s(nid.szInfo, message);
     nid.dwInfoFlags = NIIF_NONE; // No sound
+    // Load the standard application icon
+    nid.hIcon = hidData.hid.handle != INVALID_HANDLE_VALUE?
+        CreateIconWithNumber(currentLayer, IsDarkTheme()): hidData.iTrayIcon;  
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -166,12 +183,6 @@ void ShowChildWindow() {
 
 void HideChildWindow() {
     ShowWindow(hChildWnd, SW_HIDE);
-}
-
-void UpdateTrayIcon() {
-    nid.uFlags = NIF_ICON; // Set the flag to update only the icon
-    nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
 void ProcessLayerSwitches() {
@@ -201,7 +212,7 @@ void RegisterDeviceNotification(HWND hwnd) {
 
 bool OpenHidDevice(HIDData& hidData, bool notifiy) {
   
-    if (!hid_connect(hidData.hid, VID, PID)) {
+    if (!hid_connect(hidData.hid)) {
         InvalidateRect(hChildWnd, NULL, TRUE);
         ShowNotification("FootSwitch Device Status:", "Device not ready");
     }

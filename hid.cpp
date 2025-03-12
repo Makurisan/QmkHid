@@ -124,7 +124,7 @@ void hid_open(std::vector<HID>& devices) {
 
 #include <optional>
 
-std::optional<HID> hid_open(USHORT vid, USHORT pid) {
+static std::optional<HID> hid_open(USHORT vid, USHORT pid) {
     HID hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
@@ -185,23 +185,19 @@ std::optional<HID> hid_open(USHORT vid, USHORT pid) {
     return std::nullopt;
 }
 
-
 void hid_close(HID& hid) {
     CloseHandle(hid.handle);
+	hid.handle = INVALID_HANDLE_VALUE;
 }
 
-bool hid_connect(HID &hid, const USHORT vid, const USHORT pid) {
-    hid.handle = INVALID_HANDLE_VALUE;
-    while (hid.handle == INVALID_HANDLE_VALUE) {
-        std::cerr << "Attempting to open device...\n";
-        auto _hid = hid_open(vid, pid);
-        if (!_hid) {
-            std::cerr << "Failed to find target device, retrying in 5 seconds...\n";
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-			return false;
-        }
-		hid = _hid.value();
+bool hid_connect(HID &hid) {
+    auto _hid = hid_open(hid.info.VendorID, hid.info.ProductID);
+    if (!_hid) {
+        std::cerr << "Failed to find target device, retrying in 5 seconds...\n";
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+		return false;
     }
+	hid = _hid.value();
     return true;
 }
 

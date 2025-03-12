@@ -22,8 +22,6 @@ std::mutex mtx;
 using json = nlohmann::json;
 using namespace std::chrono;
 
-
-
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_APP_ICON 1001
 #define ID_TRAY_EXIT 1002
@@ -41,27 +39,26 @@ typedef struct _HIDData {
     HWND hTrayWnd;
     HWND hChildWnd;
     HICON iTrayIcon;
+    USHORT curLayer;
 }HIDData;
 
 #define VID 0x35EF //0xFEED QMK default VID
 #define PID 0x1308 //0x1308 Your keyboard PID
 
 HIDData hidData = {
-    .hid = { INVALID_HANDLE_VALUE, 0, 0, 
+    .hid = { INVALID_HANDLE_VALUE, 0, 0,
             { sizeof(HIDD_ATTRIBUTES), VID, PID, 0 } },
      .readData = {},
     .writeData = {},
     .hTrayWnd = nullptr,
     .hChildWnd = nullptr,
     .iTrayIcon = nullptr,
+    .curLayer = 0,
 };
 
 NOTIFYICONDATA nid;
 HWND hTrayWnd;
 HWND hChildWnd;
-int currentLayer = 0;
-HICON hQMKAppIcon;
-
 
 std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 
@@ -140,7 +137,7 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
-    nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
+    nid.hIcon = CreateIconWithNumber(hidData.curLayer, IsDarkTheme());
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -163,7 +160,7 @@ void ShowNotification(const char* title, const char* message) {
     nid.dwInfoFlags = NIIF_NONE; // No sound
     // Load the standard application icon
     nid.hIcon = hidData.hid.handle != INVALID_HANDLE_VALUE?
-        CreateIconWithNumber(currentLayer, IsDarkTheme()): hidData.iTrayIcon;  
+        CreateIconWithNumber(hidData.curLayer, IsDarkTheme()): hidData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -189,7 +186,7 @@ void ProcessLayerSwitches() {
     if (!layerSwitches.empty()) {
         std::lock_guard<std::mutex> lock(mtx); // Lock the mutex to ensure thread-safe
         auto lastEntry = layerSwitches.back();
-        currentLayer = lastEntry.first;
+        hidData.curLayer = lastEntry.first;
         layerSwitches.clear();
         InvalidateRect(hChildWnd, NULL, TRUE);
         ShowChildWindow();
@@ -260,7 +257,7 @@ LRESULT CALLBACK ChildWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         SetBkMode(hdcMem, TRANSPARENT);
 
         // Specify the text to draw
-        std::string text = "FootSwitch\nLayer: " + std::to_string(currentLayer);
+        std::string text = "FootSwitch\nLayer: " + std::to_string(hidData.curLayer);
 
         // Calculate the text rectangle
         RECT textRect = rect;
@@ -324,6 +321,16 @@ void CreateChildWindow() {
     ShowWindow(hChildWnd, SW_HIDE);
 }
 
+std::string extractSerialNumber(const std::string& deviceName) {
+    std::string serialNumber;
+    size_t startPos = deviceName.find_last_of('&');
+    size_t endPos = deviceName.find_last_of('#');
+    if (startPos != std::string::npos && endPos != std::string::npos && startPos < endPos) {
+        serialNumber = deviceName.substr(startPos + 1, endPos - startPos - 1);
+    }
+    return serialNumber;
+}
+
 bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
     std::string lowDevName = deviceName;
     std::transform(lowDevName.begin(), lowDevName.end(), lowDevName.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -331,6 +338,8 @@ bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
     std::stringstream vidStream, pidStream;
     vidStream << "vid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.VendorID;
     pidStream << "pid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.ProductID;
+
+    std::string serialNumber = extractSerialNumber(lowDevName);
 
     return strstr(lowDevName.c_str(), vidStream.str().c_str()) && strstr(lowDevName.c_str(), pidStream.str().c_str());
 }
@@ -347,7 +356,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 					// Remove comes more than one, because of the multiple interfaces
                     if (hidData.hid.handle != INVALID_HANDLE_VALUE) {
                         hid_close(hidData.hid);
-                        hidData.hid.handle = INVALID_HANDLE_VALUE;
+                        hidData.curLayer = 0;
                         ShowNotification("FootSwitch Device Status:", "Device unplugged");
                     }
                 }
@@ -361,6 +370,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 // Arrival comes more than one, because of the multiple interfaces
                 if (isMatchingDevice(pDevInf->dbcc_name, hidData) &&
                     hidData.hid.handle == INVALID_HANDLE_VALUE) {
+                    hidData.curLayer = 0;
                     // Handle device arrival
                     if (OpenHidDevice(hidData, false)) {
                         ;

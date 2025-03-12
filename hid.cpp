@@ -1,4 +1,5 @@
 #include "hid.h"
+#include <optional>
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -122,9 +123,7 @@ void hid_open(std::vector<HID>& devices) {
     SetupDiDestroyDeviceInfoList(deviceInfo);
 }
 
-#include <optional>
-
-static std::optional<HID> hid_open(USHORT vid, USHORT pid) {
+static std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
     HID hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
@@ -180,7 +179,6 @@ static std::optional<HID> hid_open(USHORT vid, USHORT pid) {
         }
         free(detailData);
     }
-
     SetupDiDestroyDeviceInfoList(deviceInfo);
     return std::nullopt;
 }
@@ -192,11 +190,8 @@ void hid_close(HID& hid) {
 
 bool hid_connect(HID &hid) {
     auto _hid = hid_open(hid.info.VendorID, hid.info.ProductID);
-    if (!_hid) {
-        std::cerr << "Failed to find target device, retrying in 5 seconds...\n";
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+    if (!_hid)
 		return false;
-    }
 	hid = _hid.value();
     return true;
 }
@@ -204,6 +199,10 @@ bool hid_connect(HID &hid) {
 bool hid_read(HID& hid, std::vector<BYTE>& data) {
     DWORD bytesRead;
     OVERLAPPED overlapped = { 0 };
+
+	if (hid.handle == INVALID_HANDLE_VALUE) {
+		return false;
+	}
     overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     data.resize(hid.inEplength);
     if (ReadFile(hid.handle, data.data(), (DWORD)data.size(), &bytesRead, &overlapped) ||

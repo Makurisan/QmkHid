@@ -14,6 +14,12 @@
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
+typedef struct _USB {
+    std::string devicePath;
+    USHORT vendorID;
+    USHORT productID;
+    std::string serialNumber;
+}USB;
 
 typedef struct _HID {
     HANDLE handle;
@@ -25,7 +31,7 @@ typedef struct _HID {
 typedef void (*HIDReadCallback)(const std::vector<BYTE>& data, void* userData);
 
 const std::string hid_error(HID& hid);
-std::optional<HID> hid_open(USHORT vid, USHORT pid);
+std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr=0);
 void hid_close(HID& hid);
 bool hid_connect(HID& hid);
 bool hid_connect(std::vector<HID>& hids);

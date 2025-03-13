@@ -123,14 +123,28 @@ void hid_open(std::vector<HID>& devices) {
     SetupDiDestroyDeviceInfoList(deviceInfo);
 }
 
-static std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
+std::string GetDriverFileName(const std::string& serviceName) {
+    HKEY hKey;
+    std::string subKey = "SYSTEM\\CurrentControlSet\\Services\\" + serviceName;
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, subKey.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD dataSize = 0;
+        RegQueryValueEx(hKey, "ImagePath", NULL, NULL, NULL, &dataSize);
+        std::vector<char> buffer(dataSize);
+        if (RegQueryValueEx(hKey, "ImagePath", NULL, NULL, reinterpret_cast<BYTE*>(buffer.data()), &dataSize) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return std::string(buffer.data(), dataSize);
+        }
+        RegCloseKey(hKey);
+    }
+    return "";
+}
+
+std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
     HID hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
 
-    // Get list of HID devices
-    HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL,
-        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (deviceInfo == INVALID_HANDLE_VALUE) {
         std::cerr << "Failed to get device info\n";
         return std::nullopt;
@@ -139,36 +153,42 @@ static std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
     SP_DEVICE_INTERFACE_DATA interfaceData;
     interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
 
-    // Enumerate devices
     for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfo, NULL, &hidGuid, i, &interfaceData); i++) {
         DWORD requiredSize = 0;
         SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, NULL, 0, &requiredSize, NULL);
 
-        PSP_DEVICE_INTERFACE_DETAIL_DATA detailData =
-            (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(requiredSize);
+        PSP_DEVICE_INTERFACE_DETAIL_DATA detailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(requiredSize);
         detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
 
-        if (SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, detailData,
-            requiredSize, NULL, NULL)) {
-            // Open HID device
-            HANDLE hidDevice = CreateFile(detailData->DevicePath,
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                NULL,
-                OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED,
-                NULL);
+        if (SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, detailData, requiredSize, NULL, NULL)) {
+            HANDLE hidDevice = CreateFile(detailData->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 
             if (hidDevice != INVALID_HANDLE_VALUE) {
                 HIDD_ATTRIBUTES attributes;
                 if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    std::cerr << "Found HID device: VID=" << std::hex << attributes.VendorID
-                        << " PID=" << attributes.ProductID << std::dec << std::endl;
-
                     if (attributes.VendorID == vid && attributes.ProductID == pid) {
                         hid.handle = hidDevice;
                         hid.info = attributes;
                         hid_caps(hid);
+
+                        SP_DEVINFO_DATA devInfoData;
+                        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+                        if (SetupDiEnumDeviceInfo(deviceInfo, i, &devInfoData)) {
+                            DWORD dataType;
+                            DWORD dataSize = 0;
+                            std::vector<BYTE> buffer;
+
+                            SetupDiGetDeviceRegistryProperty(deviceInfo, &devInfoData, SPDRP_SERVICE, &dataType, nullptr, 0, &dataSize);
+                            buffer.resize(dataSize);
+                            if (SetupDiGetDeviceRegistryProperty(deviceInfo, &devInfoData, SPDRP_SERVICE, &dataType, buffer.data(), dataSize, &dataSize)) {
+                                std::string serviceName(reinterpret_cast<char*>(buffer.data()), dataSize);
+                                std::cerr << "Service Name: " << serviceName << std::endl;
+
+                                std::string driverFileName = GetDriverFileName(serviceName);
+                                std::cerr << "Driver File Name: " << driverFileName << std::endl;
+                            }
+                        }
+
                         free(detailData);
                         SetupDiDestroyDeviceInfoList(deviceInfo);
                         return hid;

@@ -12,6 +12,7 @@
 #include <hidclass.h>
 #include <thread>
 #include <mutex>
+#include <ranges>
 #include "Resource.h"
 
 std::mutex mtx;
@@ -431,19 +432,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return 0;
 }
 
-HIDData& findHidData(QMKHID& qmkData, const HID& hid) {
-    for (auto& data : qmkData.hidData) {
-        if (data.hid.handle == hid.handle) {
-            return data;
-        }
-    }
-    qmkData.hidData[0];
+HIDData* findHidData(QMKHID& qmkData, const HID& hid) {
+    auto it = std::ranges::find_if(qmkData.hidData, [&hid](const HIDData& data) {
+        return data.hid.handle == hid.handle;
+    });
+    return (it != qmkData.hidData.end()) ? &(*it) : nullptr;
 }
 
 void readCallback(HID& hid, const std::vector<BYTE>& data, void* userData) {
-    HIDData* phidData = &findHidData(qmkData, hid);
-    phidData->readData.clear(); // Clear the existing data
-    phidData->readData.push_back(data); // Copy the data
+    HIDData* phidData = findHidData(qmkData, hid);
+	if (!phidData) return;
+
+    phidData->readData = { data };
 
     // Try to read from the device.
     if (data.size() == phidData->hid.inEplength) {

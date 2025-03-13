@@ -31,29 +31,33 @@ using namespace std::chrono;
 #define IDT_LAYER_SWITCH 1014
 #define IDT_HIDE_WINDOW 1015
 
-
 typedef struct _HIDData {
+    USHORT seqnr;
 	HID hid;
-    std::vector<BYTE> readData;
-    std::vector<BYTE> writeData;
+	std::vector<std::vector<BYTE>> readData;
+	std::vector<std::vector<BYTE>> writeData;
+    USHORT curLayer;
+}HIDData;
+
+typedef struct _QMKHID {
+    std::vector<HIDData> hidData;
     HWND hTrayWnd;
     HWND hChildWnd;
     HICON iTrayIcon;
-    USHORT curLayer;
-}HIDData;
+}QMKHID;
 
 #define VID 0x35EF //0xFEED QMK default VID
 #define PID 0x1308 //0x1308 Your keyboard PID
 
-HIDData hidData = {
-    .hid = { INVALID_HANDLE_VALUE, 0, 0,
-            { sizeof(HIDD_ATTRIBUTES), VID, PID, 0 } },
-     .readData = {},
-    .writeData = {},
+QMKHID qmkData = {
+    .hidData = {
+        { 1, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), VID, PID, 0 } }, {}, {}, 0 },
+        { 2, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
+        { 3, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 }
+    },
     .hTrayWnd = nullptr,
     .hChildWnd = nullptr,
     .iTrayIcon = nullptr,
-    .curLayer = 0,
 };
 
 NOTIFYICONDATA nid;
@@ -68,7 +72,8 @@ std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 // •	Value: If the device does not use report IDs, the report ID is typically set to 0.
 bool is_json_object(HIDData* phidData) {
     try {
-        auto j = json::parse(phidData->readData.begin()+1, phidData->readData.end());
+        std::string jsonData(phidData->readData[0].begin() + 1, phidData->readData[0].end());
+        auto j = json::parse(jsonData);
         return j.is_object();
     }
     catch (json::parse_error&) {
@@ -137,7 +142,7 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
-    nid.hIcon = CreateIconWithNumber(hidData.curLayer, IsDarkTheme());
+    nid.hIcon = CreateIconWithNumber(qmkData.hidData[0].curLayer, IsDarkTheme());
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -150,7 +155,7 @@ void InitNotifyIconData() {
     nid.uCallbackMessage = WM_TRAYICON;
 //nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
     strcpy_s(nid.szTip, "Foot Switch\nomrsh31h");
-    hidData.iTrayIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_QMKHID));
+    qmkData.iTrayIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_QMKHID));
 }
 
 void ShowNotification(const char* title, const char* message) {
@@ -159,8 +164,8 @@ void ShowNotification(const char* title, const char* message) {
     strcpy_s(nid.szInfo, message);
     nid.dwInfoFlags = NIIF_NONE; // No sound
     // Load the standard application icon
-    nid.hIcon = hidData.hid.handle != INVALID_HANDLE_VALUE?
-        CreateIconWithNumber(hidData.curLayer, IsDarkTheme()): hidData.iTrayIcon;
+    nid.hIcon = qmkData.hidData[0].hid.handle != INVALID_HANDLE_VALUE?
+        CreateIconWithNumber(qmkData.hidData[0].curLayer, IsDarkTheme()): qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -172,7 +177,7 @@ void ResetLayerSwitchTimer() {
 }
 
 void ShowChildWindow() {
-    ShowWindow(hChildWnd, SW_SHOW);
+    ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
     UpdateWindow(hChildWnd);
     // Set a timer to hide the window after 2 seconds
     SetTimer(hTrayWnd, IDT_HIDE_WINDOW, 2000, NULL);
@@ -186,7 +191,7 @@ void ProcessLayerSwitches() {
     if (!layerSwitches.empty()) {
         std::lock_guard<std::mutex> lock(mtx); // Lock the mutex to ensure thread-safe
         auto lastEntry = layerSwitches.back();
-        hidData.curLayer = lastEntry.first;
+        qmkData.hidData[0].curLayer = lastEntry.first;
         layerSwitches.clear();
         InvalidateRect(hChildWnd, NULL, TRUE);
         ShowChildWindow();
@@ -257,7 +262,7 @@ LRESULT CALLBACK ChildWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         SetBkMode(hdcMem, TRANSPARENT);
 
         // Specify the text to draw
-        std::string text = "FootSwitch\nLayer: " + std::to_string(hidData.curLayer);
+        std::string text = "FootSwitch\nLayer: " + std::to_string(qmkData.hidData[0].curLayer);
 
         // Calculate the text rectangle
         RECT textRect = rect;
@@ -340,11 +345,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
                 // Check if the device matches our VID and PID
-                if (isMatchingDevice(pDevInf->dbcc_name, hidData)) {
+                if (isMatchingDevice(pDevInf->dbcc_name, qmkData.hidData[0])) {
 					// Remove comes more than one, because of the multiple interfaces
-                    if (hidData.hid.handle != INVALID_HANDLE_VALUE) {
-                        hid_close(hidData.hid);
-                        hidData.curLayer = 0;
+                    if (qmkData.hidData[0].hid.handle != INVALID_HANDLE_VALUE) {
+                        hid_close(qmkData.hidData[0].hid);
+                        qmkData.hidData[0].curLayer = 0;
                         ShowNotification("FootSwitch Device Status:", "Device unplugged");
                     }
                 }
@@ -356,11 +361,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
                 // Check if the device matches our VID and PID
                 // Arrival comes more than one, because of the multiple interfaces
-                if (isMatchingDevice(pDevInf->dbcc_name, hidData) &&
-                    hidData.hid.handle == INVALID_HANDLE_VALUE) {
-                    hidData.curLayer = 0;
+                if (isMatchingDevice(pDevInf->dbcc_name, qmkData.hidData[0]) &&
+                    qmkData.hidData[0].hid.handle == INVALID_HANDLE_VALUE) {
+                    qmkData.hidData[0].curLayer = 0;
                     // Handle device arrival
-                    if (OpenHidDevice(hidData, false)) {
+                    if (OpenHidDevice(qmkData.hidData[0], false)) {
                         ;
                     }
                 }
@@ -385,11 +390,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         switch (LOWORD(wParam)) {
             case ID_TRAY_WRITE: {
                 // Example data to write
-                std::vector<BYTE> data(hidData.hid.outEplength, 0x00);
+                std::vector<BYTE> data(qmkData.hidData[0].hid.outEplength, 0x00);
                 const char* message = "Tray data...";
                 std::copy(message, message + std::min<size_t>(strlen(message), data.size()), data.begin());
 
-                if (hid_write(hidData.hid, data)) {
+                if (hid_write(qmkData.hidData[0].hid, data)) {
                     ShowNotification("HID Write", "Data written successfully");
                 }
                 else {
@@ -426,9 +431,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return 0;
 }
 
-void readCallback(const std::vector<BYTE>& data, void* userData) {
-    HIDData* phidData = static_cast<HIDData*>(userData);
-    phidData->readData = data;
+HIDData& findHidData(QMKHID& qmkData, const HID& hid) {
+    for (auto& data : qmkData.hidData) {
+        if (data.hid.handle == hid.handle) {
+            return data;
+        }
+    }
+    qmkData.hidData[0];
+}
+
+void readCallback(HID& hid, const std::vector<BYTE>& data, void* userData) {
+    HIDData* phidData = &findHidData(qmkData, hid);
+    phidData->readData.clear(); // Clear the existing data
+    phidData->readData.push_back(data); // Copy the data
 
     // Try to read from the device.
     if (data.size() == phidData->hid.inEplength) {
@@ -437,7 +452,8 @@ void readCallback(const std::vector<BYTE>& data, void* userData) {
         if (is_json_object(phidData)) {
             // Parse the JSON object.
             try {
-                json j = json::parse(data.begin()+1, data.end());
+                std::string jsonData(data.begin() + 1, data.end());
+                json j = json::parse(jsonData);
                 // Extract and update the "layer" value if it exists.
                 if (j.contains("layer")) {
                     int newLayer = j["layer"].get<int>();
@@ -457,10 +473,10 @@ void readCallback(const std::vector<BYTE>& data, void* userData) {
     }
     else if (data.size() == -1) {
         InvalidateRect(hChildWnd, NULL, TRUE);
-        std::string msgerr = hid_error(hidData.hid);
+        std::string msgerr = hid_error(hid);
         ShowNotification("Foot Switch", msgerr.c_str());
-        hid_close(hidData.hid);
-        hidData.hid.handle = nullptr;
+        hid_close(hid);
+        hid.handle = nullptr;
     }
 
 }
@@ -491,10 +507,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     SetTimer(hTrayWnd, IDT_TIMER1, 1000, NULL); // 1000 ms = 1 second
 
     // Try to open the HID device initially
-    OpenHidDevice(hidData, true);
+    OpenHidDevice(qmkData.hidData[0], true);
 
     // Start the read thread
-    hid_read_thread(hidData.hid, readCallback, &hidData);
+    hid_read_thread(qmkData.hidData[0].hid, readCallback, &qmkData.hidData[0]);
 
     // Message loop
     MSG msg;
@@ -512,8 +528,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     }
 
     Shell_NotifyIcon(NIM_DELETE, &nid);
-    if (hidData.hid.handle != INVALID_HANDLE_VALUE) {
-        hid_close(hidData.hid);
+    if (qmkData.hidData[0].hid.handle != INVALID_HANDLE_VALUE) {
+        hid_close(qmkData.hidData[0].hid);
     }
 
     return 0;

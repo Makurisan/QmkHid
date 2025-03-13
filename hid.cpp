@@ -226,7 +226,7 @@ void hid_read_cp(HID& hid, HIDReadCallback callback, void* userData) {
     std::vector<BYTE> data;
     // dont call it always
     if(hid_read(hid, data))
-        callback(data, userData);
+        callback(hid, data, userData);
 }
 
 static void hid_read_thread_func(HID& hid, HIDReadCallback callback, void* userData) {

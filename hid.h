@@ -28,10 +28,10 @@ typedef struct _HID {
 	HIDD_ATTRIBUTES info;
 }HID;
 
-typedef void (*HIDReadCallback)(const std::vector<BYTE>& data, void* userData);
+typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);
 
 const std::string hid_error(HID& hid);
-std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr=0);
+std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr);
 void hid_close(HID& hid);
 bool hid_connect(HID& hid);
 bool hid_connect(std::vector<HID>& hids);

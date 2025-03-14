@@ -208,8 +208,8 @@ void hid_close(HID& hid) {
 	hid.handle = INVALID_HANDLE_VALUE;
 }
 
-bool hid_connect(HID &hid) {
-    auto _hid = hid_open(hid.info.VendorID, hid.info.ProductID, hid.info.VersionNumber);
+bool hid_connect(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
+    auto _hid = hid_open(vid, pid, sernbr);
     if (!_hid)
 		return false;
 	hid = _hid.value();

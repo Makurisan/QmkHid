@@ -30,12 +30,21 @@
     <ClInclude Include="hid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="keycode_lookup.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KeyCode.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="QmkHid.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="hid.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="keycode_lookup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

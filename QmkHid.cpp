@@ -32,29 +32,41 @@ using namespace std::chrono;
 #define IDT_LAYER_SWITCH 1014
 #define IDT_HIDE_WINDOW 1015
 
+#define VID 0x35EF //0xFEED QMK default VID
+#define PID 0x1308 //0x1308 Your keyboard PID
+
+typedef struct _Support {
+    USHORT vid;
+    USHORT pid;
+    USHORT sernbr;
+}DeviceSupport;
+
 typedef struct _HIDData {
     USHORT seqnr;
 	HID hid;
 	std::vector<std::vector<BYTE>> readData;
 	std::vector<std::vector<BYTE>> writeData;
     USHORT curLayer;
+	SHORT curKey;   // last key pressed
 }HIDData;
 
 typedef struct _QMKHID {
     std::vector<HIDData> hidData;
+	std::vector<DeviceSupport> usbDevices;
     HWND hTrayWnd;
     HWND hChildWnd;
     HICON iTrayIcon;
 }QMKHID;
 
-#define VID 0x35EF //0xFEED QMK default VID
-#define PID 0x1308 //0x1308 Your keyboard PID
 
 QMKHID qmkData = {
     .hidData = {
-        { 1, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), VID, PID, 0 } }, {}, {}, 0 },
+        { 1, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
         { 2, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
         { 3, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 }
+    },
+    .usbDevices = {
+        { VID, PID, 0 } // DeviceSupport instances
     },
     .hTrayWnd = nullptr,
     .hChildWnd = nullptr,
@@ -215,16 +227,18 @@ void RegisterDeviceNotification(HWND hwnd) {
 
 bool OpenHidDevice(HIDData& hidData, bool notifiy) {
   
-    if (!hid_connect(hidData.hid)) {
-        InvalidateRect(hChildWnd, NULL, TRUE);
-        ShowNotification("FootSwitch Device Status:", "Device not ready");
-    }
-    else {
-		// Set the hid_read() function to be non-blocking.
-		hidData.readData.resize(hidData.hid.inEplength);
-		hidData.writeData.resize(hidData.hid.outEplength);
-        ShowNotification("FootSwitch Device Status:", "Device ready");
-        return true;
+    for (const auto& device : qmkData.usbDevices) {
+        if (!hid_connect(hidData.hid, device.vid, device.pid, device.sernbr)) {
+            InvalidateRect(hChildWnd, NULL, TRUE);
+            ShowNotification("FootSwitch Device Status:", "Device not ready");
+        }
+        else {
+            // Set the hid_read() function to be non-blocking.
+            hidData.readData.resize(hidData.hid.inEplength);
+            hidData.writeData.resize(hidData.hid.outEplength);
+            ShowNotification("FootSwitch Device Status:", "Device ready");
+            return true;
+        }
     }
 	return false;
 }
@@ -456,11 +470,14 @@ void readCallback(HID& hid, const std::vector<BYTE>& data, void* userData) {
                 json j = json::parse(jsonData);
                 // Extract and update the "layer" value if it exists.
                 if (j.contains("layer")) {
-                    int newLayer = j["layer"].get<int>();
+                    phidData->curLayer = j["layer"].get<int>();
 
                     std::lock_guard<std::mutex> lock(mtx);
-                    layerSwitches.push_back({ newLayer, steady_clock::now() });
+                    layerSwitches.push_back({ phidData->curLayer, steady_clock::now() });
                     ResetLayerSwitchTimer();
+                }
+                if (j.contains("keycode")) {
+                    phidData->curKey = j["keycode"].get<int>();
                 }
             }
             catch (json::parse_error& e) {

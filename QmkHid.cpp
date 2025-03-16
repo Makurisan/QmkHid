@@ -2,8 +2,6 @@
 #include <shellapi.h>
 #include <vector>
 #include <string>
-#include "hid.h"
-#include "json.hpp"
 #include <dwmapi.h>
 #include <chrono>
 #include <wingdi.h>
@@ -13,6 +11,9 @@
 #include <thread>
 #include <mutex>
 #include <ranges>
+#include "hid.h"
+#include "json.hpp"
+
 #include "Resource.h"
 
 std::mutex mtx;
@@ -32,10 +33,28 @@ using namespace std::chrono;
 #define IDT_LAYER_SWITCH 1014
 #define IDT_HIDE_WINDOW 1015
 
-#define VID 0x35EF //0xFEED QMK default VID
-#define PID 0x1308 //0x1308 Your keyboard PID
+
+#define QMK_VID 0x35EE //0xFEED QMK default VID
+#define QMK_PID 0x1308 //0x1308 Your keyboard PID
+
+// Streamdeck
+#define STMDECK_VID 0x0fd9
+#define STMDECK_PID 0x0080
+
+typedef struct _StreamDeckHIDIn {
+    uint8_t reportID; // Report ID to identify the report type
+    uint8_t buttonStates[2]; // Button states (adjust size as needed)
+} StreamDeckHIDIn;
+
+enum ProductType {
+    NoBoard = 0,
+    StreamDeck,
+    QMK
+};
 
 typedef struct _Support {
+    std::string name;
+    ProductType type;
     USHORT vid;
     USHORT pid;
     USHORT sernbr;
@@ -43,33 +62,32 @@ typedef struct _Support {
 
 typedef struct _HIDData {
     USHORT seqnr;
+    ProductType type;
 	HID hid;
-	std::vector<std::vector<BYTE>> readData;
-	std::vector<std::vector<BYTE>> writeData;
+	std::vector<uint8_t> readData;
+	std::vector<uint8_t> writeData;
     USHORT curLayer;
 	SHORT curKey;   // last key pressed
 }HIDData;
 
 typedef struct _QMKHID {
     std::vector<HIDData> hidData;
-	std::vector<DeviceSupport> usbDevices;
-    HWND hTrayWnd;
-    HWND hChildWnd;
+	std::vector<DeviceSupport> usbSuppDevs;
     HICON iTrayIcon;
 }QMKHID;
 
 
 QMKHID qmkData = {
-    .hidData = {
-        { 1, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
-        { 2, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
-        { 3, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 }
+	.hidData = {},
+    //.hidData = {
+    //    { 1, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
+    //    { 2, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 },
+    //    { 3, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 }
+    //},
+    .usbSuppDevs = {
+        {"QMK", QMK, QMK_VID, QMK_PID, 0}, // DeviceSupport instances
+        {"StreamDeck", StreamDeck, STMDECK_VID, STMDECK_PID, 0}, // DeviceSupport instances
     },
-    .usbDevices = {
-        { VID, PID, 0 } // DeviceSupport instances
-    },
-    .hTrayWnd = nullptr,
-    .hChildWnd = nullptr,
     .iTrayIcon = nullptr,
 };
 
@@ -85,7 +103,7 @@ std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 // •	Value: If the device does not use report IDs, the report ID is typically set to 0.
 bool is_json_object(HIDData* phidData) {
     try {
-        std::string jsonData(phidData->readData[0].begin() + 1, phidData->readData[0].end());
+        std::string jsonData(phidData->readData.begin() + 1, phidData->readData.end());
         auto j = json::parse(jsonData);
         return j.is_object();
     }
@@ -171,14 +189,14 @@ void InitNotifyIconData() {
     qmkData.iTrayIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_QMKHID));
 }
 
-void ShowNotification(const char* title, const char* message) {
+void ShowNotification(const HIDData& hidData,const char* title, const char* message) {
     nid.uFlags = NIF_INFO | NIF_ICON;
     strcpy_s(nid.szInfoTitle, title);
     strcpy_s(nid.szInfo, message);
     nid.dwInfoFlags = NIIF_NONE; // No sound
     // Load the standard application icon
-    nid.hIcon = qmkData.hidData[0].hid.handle != INVALID_HANDLE_VALUE?
-        CreateIconWithNumber(qmkData.hidData[0].curLayer, IsDarkTheme()): qmkData.iTrayIcon;
+    qmkData.iTrayIcon = hidData.hid.handle != INVALID_HANDLE_VALUE?
+        CreateIconWithNumber(hidData.curLayer, IsDarkTheme()): qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -225,27 +243,46 @@ void RegisterDeviceNotification(HWND hwnd) {
     }
 }
 
-bool OpenHidDevice(HIDData& hidData, bool notifiy) {
-  
-    for (const auto& device : qmkData.usbDevices) {
+HIDData* findHidFromPort(QMKHID& qmkData, const std::string& port) {
+    auto it = std::ranges::find_if(qmkData.hidData, [&port](const HIDData& data) {
+        return data.hid.port.has_value() && data.hid.port.value() == port;
+        });
+    return (it != qmkData.hidData.end()) ? &(*it) : nullptr;
+}
+
+bool OpenHidDevice(QMKHID& qmkData, HID* hid=nullptr) {
+    bool anyDeviceOpened = false;
+
+    for (const auto& device : qmkData.usbSuppDevs) {
+        HIDData hidData = { 0, NoBoard, { INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }, {}, {}, 0 };
+
         if (!hid_connect(hidData.hid, device.vid, device.pid, device.sernbr)) {
             InvalidateRect(hChildWnd, NULL, TRUE);
-            ShowNotification("FootSwitch Device Status:", "Device not ready");
+           // ShowNotification(hidData, "FootSwitch Device Status:", (device.name + " not ready").c_str());
         }
         else {
             // Set the hid_read() function to be non-blocking.
             hidData.readData.resize(hidData.hid.inEplength);
             hidData.writeData.resize(hidData.hid.outEplength);
-            ShowNotification("FootSwitch Device Status:", "Device ready");
-            return true;
+            hidData.type = device.type;
+
+          //  ShowNotification(hidData, "FootSwitch Device Status:", (device.name + " ready").c_str());
+            qmkData.hidData.push_back(hidData);
+            anyDeviceOpened = true;
         }
     }
-	return false;
+
+    return anyDeviceOpened;
 }
 
 LRESULT CALLBACK ChildWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_PAINT: {
+
+        if (!IsWindowVisible(hwnd)) {
+            return 0; // If the window is not visible, do not process WM_PAINT
+        }
+
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
 
@@ -341,15 +378,16 @@ void CreateChildWindow() {
     ShowWindow(hChildWnd, SW_HIDE);
 }
 
-bool isMatchingDevice(const std::string& deviceName, const HIDData& hidData) {
+std::optional<HIDData> findMatchingHIDDevice(QMKHID& qmkData, const std::string& deviceName) {
     std::string lowDevName = deviceName;
     std::transform(lowDevName.begin(), lowDevName.end(), lowDevName.begin(), [](unsigned char c) { return std::tolower(c); });
-
-    std::stringstream vidStream, pidStream;
-    vidStream << "vid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.VendorID;
-    pidStream << "pid_" << std::hex << std::setw(4) << std::setfill('0') << hidData.hid.info.ProductID;
-
-    return strstr(lowDevName.c_str(), vidStream.str().c_str()) && strstr(lowDevName.c_str(), pidStream.str().c_str());
+    
+    for (auto& hidData : qmkData.hidData) {
+        if (hidData.hid.port.has_value()
+            && strstr(lowDevName.c_str(), hidData.hid.port->c_str()))
+                return hidData;
+    }
+    return std::nullopt;
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -360,12 +398,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
                 // Check if the device matches our VID and PID
-                if (isMatchingDevice(pDevInf->dbcc_name, qmkData.hidData[0])) {
+                auto hidData = findMatchingHIDDevice(qmkData, pDevInf->dbcc_name);
+                if (hidData.has_value()) {
+					//HIDData* phidData = findHidFromPort(qmkData, qmkData.hidData[0].hid.port.value());
 					// Remove comes more than one, because of the multiple interfaces
-                    if (qmkData.hidData[0].hid.handle != INVALID_HANDLE_VALUE) {
-                        hid_close(qmkData.hidData[0].hid);
-                        qmkData.hidData[0].curLayer = 0;
-                        ShowNotification("FootSwitch Device Status:", "Device unplugged");
+                    if (hidData->hid.handle != INVALID_HANDLE_VALUE) {
+                        hid_close(hidData->hid);
+                        hidData->curLayer = 0;
+                        ShowNotification(*hidData, "FootSwitch Device Status:", "Device unplugged");
                     }
                 }
             }
@@ -376,14 +416,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
                 // Check if the device matches our VID and PID
                 // Arrival comes more than one, because of the multiple interfaces
-                if (isMatchingDevice(pDevInf->dbcc_name, qmkData.hidData[0]) &&
-                    qmkData.hidData[0].hid.handle == INVALID_HANDLE_VALUE) {
-                    qmkData.hidData[0].curLayer = 0;
-                    // Handle device arrival
-                    if (OpenHidDevice(qmkData.hidData[0], false)) {
-                        ;
-                    }
-                }
+                //if (isMatchingDevice(pDevInf->dbcc_name, qmkData.hidData[0]) &&
+                //    qmkData.hidData[0].hid.handle == INVALID_HANDLE_VALUE) {
+                //    qmkData.hidData[0].curLayer = 0;
+                //    // Handle device arrival
+                //    if (OpenHidDevice(qmkData, nullptr)) {
+                //        ;
+                //    }
+                //}
             }
         }
         break;
@@ -405,16 +445,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         switch (LOWORD(wParam)) {
             case ID_TRAY_WRITE: {
                 // Example data to write
-                std::vector<BYTE> data(qmkData.hidData[0].hid.outEplength, 0x00);
-                const char* message = "Tray data...";
-                std::copy(message, message + std::min<size_t>(strlen(message), data.size()), data.begin());
+                //std::vector<BYTE> data(qmkData.hidData[0].hid.outEplength, 0x00);
+                //const char* message = "Tray data...";
+                //std::copy(message, message + std::min<size_t>(strlen(message), data.size()), data.begin());
 
-                if (hid_write(qmkData.hidData[0].hid, data)) {
-                    ShowNotification("HID Write", "Data written successfully");
-                }
-                else {
-                    ShowNotification("HID Write", "Failed to write data");
-                }
+                //if (hid_write(qmkData.hidData[0].hid, data)) {
+                //    ShowNotification(hidData, "HID Write", "Data written successfully");
+                //}
+                //else {
+                //    ShowNotification(hidData, "HID Write", "Failed to write data");
+                //}
                 break;
             }
             case ID_TRAY_EXIT:
@@ -446,6 +486,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return 0;
 }
 
+std::optional<DeviceSupport> findDeviceSupport(const QMKHID& qmkData, const HID& hid) {
+    auto it = std::ranges::find_if(qmkData.usbSuppDevs, [&hid](const DeviceSupport& device) {
+        return device.vid == hid.info.VendorID && device.pid == hid.info.ProductID;
+        });
+
+    if (it != qmkData.usbSuppDevs.end()) {
+        return *it;
+    }
+    else {
+        return std::nullopt;
+    }
+}
+
 HIDData* findHidData(QMKHID& qmkData, const HID& hid) {
     auto it = std::ranges::find_if(qmkData.hidData, [&hid](const HIDData& data) {
         return data.hid.handle == hid.handle;
@@ -453,35 +506,60 @@ HIDData* findHidData(QMKHID& qmkData, const HID& hid) {
     return (it != qmkData.hidData.end()) ? &(*it) : nullptr;
 }
 
-void readCallback(HID& hid, const std::vector<BYTE>& data, void* userData) {
+uint8_t* p;
+
+void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
     HIDData* phidData = findHidData(qmkData, hid);
 	if (!phidData) return;
 
-    phidData->readData = { data };
+    phidData->readData = data ;
 
     // Try to read from the device.
     if (data.size() == phidData->hid.inEplength) {
-        hid_write(phidData->hid, data);
-        // Check if the data is in JSON object format.
-        if (is_json_object(phidData)) {
-            // Parse the JSON object.
-            try {
-                std::string jsonData(data.begin() + 1, data.end());
-                json j = json::parse(jsonData);
-                // Extract and update the "layer" value if it exists.
-                if (j.contains("layer")) {
-                    phidData->curLayer = j["layer"].get<int>();
+        auto devSupport = findDeviceSupport(qmkData, hid);
+        //// Check if the data is in JSON object format.
+        if (devSupport->type == StreamDeck) { // repid for btn pressed is data[0] == 1
+            // Parse the StreamDeck HID input report
+            auto report = reinterpret_cast<StreamDeckHIDIn*>(&phidData->readData[0]);
 
-                    std::lock_guard<std::mutex> lock(mtx);
-                    layerSwitches.push_back({ phidData->curLayer, steady_clock::now() });
-                    ResetLayerSwitchTimer();
-                }
-                if (j.contains("keycode")) {
-                    phidData->curKey = j["keycode"].get<int>();
+            auto p = &phidData->readData[0];
+            // Check the state of button 11 (assuming button 11 is the 11th bit in the buttonStates array)
+            bool isButton11Pressed = (report->buttonStates[1] & 0x08) != 0; // 0x08 is the bitmask for the 3rd bit in the second byte
+
+            // Display all bits set in the buttonStates array
+            std::string bitString;
+            for (int i = 0; i < sizeof(report->buttonStates); ++i) {
+                for (int bit = 7; bit >= 0; --bit) {
+                    bitString += (report->buttonStates[i] & (1 << bit)) ? '1' : '0';
+                    bitString += ' ';
                 }
             }
-            catch (json::parse_error& e) {
-                ShowNotification("Device Status", "Wrong data from the USB Device");
+            bitString += '\n';
+            OutputDebugString(bitString.c_str());
+
+        }
+        else if (devSupport->type == QMK) {
+            if (is_json_object(phidData)) {
+                // Parse the JSON object.
+                try {
+                    std::string jsonData(data.begin() + 1, data.end());
+                    json j = json::parse(jsonData);
+                    // Extract and update the "layer" value if it exists.
+                    if (j.contains("layer")) {
+                        phidData->curLayer = j["layer"].get<int>();
+
+                        std::lock_guard<std::mutex> lock(mtx);
+                        layerSwitches.push_back({ phidData->curLayer, steady_clock::now() });
+                        ResetLayerSwitchTimer();
+                    }
+                    if (j.contains("keycode")) {
+                        phidData->curKey = j["keycode"].get<int>();
+                    }
+                    hid_write(phidData->hid, data);
+                }
+                catch (json::parse_error& e) {
+                    ShowNotification(*phidData, "Device Status", "Wrong data from the USB Device");
+                }
             }
         }
     }
@@ -491,7 +569,7 @@ void readCallback(HID& hid, const std::vector<BYTE>& data, void* userData) {
     else if (data.size() == -1) {
         InvalidateRect(hChildWnd, NULL, TRUE);
         std::string msgerr = hid_error(hid);
-        ShowNotification("Foot Switch", msgerr.c_str());
+        ShowNotification(*phidData, "Foot Switch", msgerr.c_str());
         hid_close(hid);
         hid.handle = nullptr;
     }
@@ -524,10 +602,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     SetTimer(hTrayWnd, IDT_TIMER1, 1000, NULL); // 1000 ms = 1 second
 
     // Try to open the HID device initially
-    OpenHidDevice(qmkData.hidData[0], true);
+    OpenHidDevice(qmkData, nullptr);
 
     // Start the read thread
-    hid_read_thread(qmkData.hidData[0].hid, readCallback, &qmkData.hidData[0]);
+    for (auto& hidData : qmkData.hidData) {
+        hid_read_thread(hidData.hid, readCallback, &hidData);
+    }
 
     // Message loop
     MSG msg;

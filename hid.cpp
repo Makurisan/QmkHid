@@ -217,16 +217,22 @@ bool hid_connect(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
     return true;
 }
 
-bool hid_read(HID& hid, std::vector<BYTE>& data) {
+bool hid_read(HID& hid, std::vector<uint8_t>& data) {
+    if (hid.handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
     DWORD bytesRead;
     OVERLAPPED overlapped = { 0 };
-
-	if (hid.handle == INVALID_HANDLE_VALUE) {
-		return false;
-	}
     overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+    if (!overlapped.hEvent) {
+        std::cerr << "CreateEvent failed with error: " << GetLastErrorAsString() << std::endl;
+        return false;
+    }
+
     data.resize(hid.inEplength);
-    if (ReadFile(hid.handle, data.data(), (DWORD)data.size(), &bytesRead, &overlapped) ||
+    if (ReadFile(hid.handle, data.data(), static_cast<DWORD>(data.size()), &bytesRead, &overlapped) ||
         GetLastError() == ERROR_IO_PENDING) {
         if (WaitForSingleObject(overlapped.hEvent, INFINITE) == WAIT_OBJECT_0) {
             if (GetOverlappedResult(hid.handle, &overlapped, &bytesRead, FALSE)) {
@@ -238,13 +244,17 @@ bool hid_read(HID& hid, std::vector<BYTE>& data) {
             }
         }
     }
+    else {
+        std::cerr << "ReadFile failed with error: " << GetLastErrorAsString() << std::endl;
+    }
+
     CloseHandle(overlapped.hEvent);
     data.clear();
     return false;
 }
 
 void hid_read_cp(HID& hid, HIDReadCallback callback, void* userData) {
-    std::vector<BYTE> data;
+    std::vector<uint8_t> data;
     // dont call it always
     if(hid_read(hid, data))
         callback(hid, data, userData);
@@ -263,7 +273,7 @@ void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
     readThread.detach();
 }
 
-bool hid_write(HID& hid, const std::vector<BYTE>& data) {
+bool hid_write(HID& hid, const std::vector<uint8_t>& data) {
     DWORD bytesWritten;
     OVERLAPPED overlapped = { 0 };
     overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);

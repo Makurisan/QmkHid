@@ -11,8 +11,6 @@
 #include <chrono>
 #include <optional>
 
-
-
 typedef struct _USB {
     std::string devicePath;
     USHORT vendorID;

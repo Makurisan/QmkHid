@@ -42,8 +42,8 @@ using namespace std::chrono;
 #define STMDECK_PID 0x0080
 
 typedef struct _StreamDeckHIDIn {
-    uint8_t reportID; // Report ID to identify the report type
-    uint8_t buttonStates[2]; // Button states (adjust size as needed)
+    uint8_t reportID[4]; // Report ID to identify the report type
+    uint8_t buttonStates[15]; // Button states (adjust size as needed)
 } StreamDeckHIDIn;
 
 enum ProductType {
@@ -506,8 +506,6 @@ HIDData* findHidData(QMKHID& qmkData, const HID& hid) {
     return (it != qmkData.hidData.end()) ? &(*it) : nullptr;
 }
 
-uint8_t* p;
-
 void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
     HIDData* phidData = findHidData(qmkData, hid);
 	if (!phidData) return;
@@ -522,17 +520,11 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
             // Parse the StreamDeck HID input report
             auto report = reinterpret_cast<StreamDeckHIDIn*>(&phidData->readData[0]);
 
-            auto p = &phidData->readData[0];
-            // Check the state of button 11 (assuming button 11 is the 11th bit in the buttonStates array)
-            bool isButton11Pressed = (report->buttonStates[1] & 0x08) != 0; // 0x08 is the bitmask for the 3rd bit in the second byte
-
             // Display all bits set in the buttonStates array
             std::string bitString;
             for (int i = 0; i < sizeof(report->buttonStates); ++i) {
-                for (int bit = 7; bit >= 0; --bit) {
-                    bitString += (report->buttonStates[i] & (1 << bit)) ? '1' : '0';
-                    bitString += ' ';
-                }
+                bitString += (report->buttonStates[i] == 1) ? '1' : '0';
+                bitString += ' ';
             }
             bitString += '\n';
             OutputDebugString(bitString.c_str());

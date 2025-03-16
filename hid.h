@@ -11,8 +11,7 @@
 #include <chrono>
 #include <optional>
 
-#pragma comment(lib, "setupapi.lib")
-#pragma comment(lib, "hid.lib")
+
 
 typedef struct _USB {
     std::string devicePath;
@@ -23,9 +22,10 @@ typedef struct _USB {
 
 typedef struct _HID {
     HANDLE handle;
-    uint8_t inEplength;
-    uint8_t outEplength;
+    uint16_t inEplength;
+    uint16_t outEplength;
 	HIDD_ATTRIBUTES info;
+    std::optional<std::string> port;
 }HID;
 
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);

@@ -1,6 +1,9 @@
 #include "hid.h"
 #include <optional>
 
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "hid.lib")
+
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
     if (error == 0) {
@@ -39,8 +42,8 @@ void hid_caps(HID& hid) {
             std::cout << "Usage Page: " << caps.UsagePage << std::endl;
             std::cout << "Usage: " << caps.Usage << std::endl;
             std::cout << "Input Report Byte Length: " << caps.InputReportByteLength << std::endl;
-            hid.inEplength = static_cast<uint8_t>(caps.InputReportByteLength);
-            hid.outEplength = static_cast<uint8_t>(caps.OutputReportByteLength);
+            hid.inEplength = static_cast<uint16_t>(caps.InputReportByteLength);
+            hid.outEplength = static_cast<uint16_t>(caps.OutputReportByteLength);
             std::cout << "Output Report Byte Length: " << caps.OutputReportByteLength << std::endl;
             std::cout << "Feature Report Byte Length: " << caps.FeatureReportByteLength << std::endl;
             std::cout << "Number of Link Collection Nodes: " << caps.NumberLinkCollectionNodes << std::endl;
@@ -123,20 +126,31 @@ void hid_open(std::vector<HID>& devices) {
     SetupDiDestroyDeviceInfoList(deviceInfo);
 }
 
-std::string GetDriverFileName(const std::string& serviceName) {
-    HKEY hKey;
-    std::string subKey = "SYSTEM\\CurrentControlSet\\Services\\" + serviceName;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, subKey.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        DWORD dataSize = 0;
-        RegQueryValueEx(hKey, "ImagePath", NULL, NULL, NULL, &dataSize);
-        std::vector<char> buffer(dataSize);
-        if (RegQueryValueEx(hKey, "ImagePath", NULL, NULL, reinterpret_cast<BYTE*>(buffer.data()), &dataSize) == ERROR_SUCCESS) {
-            RegCloseKey(hKey);
-            return std::string(buffer.data(), dataSize);
-        }
-        RegCloseKey(hKey);
+std::optional<std::string> GetUsbPortNumber(HDEVINFO deviceInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
+    DWORD requiredSize = 0;
+    SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, NULL, 0, &requiredSize);
+    std::vector<char> buffer(requiredSize);
+    if (!SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, buffer.data(), requiredSize, &requiredSize)) {
+        return std::nullopt;
     }
-    return "";
+
+    std::string deviceInstanceId(buffer.data());
+    size_t pos = deviceInstanceId.find_last_of('\\');
+    if (pos != std::string::npos) {
+        std::string portNumber = deviceInstanceId.substr(pos + 1);
+        return portNumber;
+    }
+
+    return std::nullopt;
+}
+
+bool hid_reconnect(const HID& hid, const std::vector<HID>& connectedDevices) {
+    for ( auto _hid : connectedDevices) {
+        if (_hid.info.VendorID == hid.info.VendorID && _hid.info.ProductID == hid.info.ProductID && _hid.port == hid.port) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
@@ -174,21 +188,8 @@ std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
                         SP_DEVINFO_DATA devInfoData;
                         devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
                         if (SetupDiEnumDeviceInfo(deviceInfo, i, &devInfoData)) {
-                            DWORD dataType;
-                            DWORD dataSize = 0;
-                            std::vector<BYTE> buffer;
-
-                            SetupDiGetDeviceRegistryProperty(deviceInfo, &devInfoData, SPDRP_SERVICE, &dataType, nullptr, 0, &dataSize);
-                            buffer.resize(dataSize);
-                            if (SetupDiGetDeviceRegistryProperty(deviceInfo, &devInfoData, SPDRP_SERVICE, &dataType, buffer.data(), dataSize, &dataSize)) {
-                                std::string serviceName(reinterpret_cast<char*>(buffer.data()), dataSize);
-                                std::cerr << "Service Name: " << serviceName << std::endl;
-
-                                std::string driverFileName = GetDriverFileName(serviceName);
-                                std::cerr << "Driver File Name: " << driverFileName << std::endl;
-                            }
+                            hid.port = GetUsbPortNumber(deviceInfo, devInfoData);
                         }
-
                         free(detailData);
                         SetupDiDestroyDeviceInfoList(deviceInfo);
                         return hid;

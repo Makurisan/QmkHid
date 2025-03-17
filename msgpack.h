@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <vector>
+#include <string>
 
 
 #define MSGPACK_PAIR_ARRAY_SIZE 10
@@ -27,6 +28,7 @@
 typedef struct {
     uint8_t key;
     uint8_t value;
+    std::string name;
 } msgpack_pair_t;
 
 typedef struct {
@@ -38,3 +40,4 @@ bool add_msgpack_pair(msgpack_t *msgpack, uint8_t key, uint8_t value);
 void init_msgpack(msgpack_t *msgpack);
 void send_msgpack(msgpack_t *msgpack);
 bool read_msgpack(msgpack_t* km, std::vector<uint8_t>& data);
+bool msgpack_log(msgpack_t* km);

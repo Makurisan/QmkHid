@@ -537,8 +537,8 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
             if (read_msgpack(&km, phidData->readData)) {
                 // Parse the JSON object.
                 try {
-
-                   // hid_write(phidData->hid, data);
+                    msgpack_log(&km);
+                   //hid_write(phidData->hid, data);
                 }
                 catch (json::parse_error& e) {
                     ShowNotification(*phidData, "Device Status", "Wrong data from the USB Device");

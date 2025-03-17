@@ -1,5 +1,5 @@
 
-
+#include <format> // For std::format
 #include <mpack.h>
 #include "msgpack.h"
 #include "hid.h"
@@ -91,6 +91,19 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     mpack_done_map(&reader);
     printf("Received %d key-value pairs\n", km->count);
     mpack_reader_destroy(&reader);
+
+    return true;
+}
+
+bool msgpack_log(msgpack_t* km) {
+    std::string outmsg;
+
+    for (uint32_t i = 0; i < km->count; i++) {
+        outmsg += std::format("Key: {}, Value: {}\n", km->pairs[i].key, km->pairs[i].value);
+    }
+
+
+    OutputDebugString(outmsg.c_str());
 
     return true;
 }

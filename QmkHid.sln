@@ -5,6 +5,8 @@ VisualStudioVersion = 17.13.35825.156
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "QmkHid", "QmkHid.vcxproj", "{87EA93B7-CBCA-4DD1-9E1A-E4759A6BD50F}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mpack", "..\mpack\mpack.vcxitems", "{D364978C-0FD5-4953-8769-0210054C6D48}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -27,5 +29,9 @@ Global
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C7E8FDF5-25C7-4D8A-BE6D-BC40FDFA6264}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		..\mpack\mpack.vcxitems*{87ea93b7-cbca-4dd1-9e1a-e4759a6bd50f}*SharedItemsImports = 4
+		..\mpack\mpack.vcxitems*{d364978c-0fd5-4953-8769-0210054c6d48}*SharedItemsImports = 9
 	EndGlobalSection
 EndGlobal

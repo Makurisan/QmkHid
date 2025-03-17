@@ -13,6 +13,7 @@
 #include <ranges>
 #include "hid.h"
 #include "json.hpp"
+#include "msgpack.h"
 
 #include "Resource.h"
 
@@ -507,10 +508,11 @@ HIDData* findHidData(QMKHID& qmkData, const HID& hid) {
 }
 
 void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
+	// Get the HIDData object associated with the HID device
     HIDData* phidData = findHidData(qmkData, hid);
 	if (!phidData) return;
-
-    phidData->readData = data ;
+    // remove the first report id byte from data
+    phidData->readData = std::vector<uint8_t>(data.begin() + 1, data.end());
 
     // Try to read from the device.
     if (data.size() == phidData->hid.inEplength) {
@@ -531,23 +533,12 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 
         }
         else if (devSupport->type == QMK) {
-            if (is_json_object(phidData)) {
+            msgpack_t km;
+            if (read_msgpack(&km, phidData->readData)) {
                 // Parse the JSON object.
                 try {
-                    std::string jsonData(data.begin() + 1, data.end());
-                    json j = json::parse(jsonData);
-                    // Extract and update the "layer" value if it exists.
-                    if (j.contains("layer")) {
-                        phidData->curLayer = j["layer"].get<int>();
 
-                        std::lock_guard<std::mutex> lock(mtx);
-                        layerSwitches.push_back({ phidData->curLayer, steady_clock::now() });
-                        ResetLayerSwitchTimer();
-                    }
-                    if (j.contains("keycode")) {
-                        phidData->curKey = j["keycode"].get<int>();
-                    }
-                    hid_write(phidData->hid, data);
+                   // hid_write(phidData->hid, data);
                 }
                 catch (json::parse_error& e) {
                     ShowNotification(*phidData, "Device Status", "Wrong data from the USB Device");

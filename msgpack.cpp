@@ -4,6 +4,18 @@
 #include "msgpack.h"
 #include "hid.h"
 
+typedef struct {
+    uint8_t key;
+    const char *name;
+} msgpack_key_t;
+
+static msgpack_key_t msgpack_keys[] = {
+    {MSGPACK_UNKNOWN, "unknown"},
+    {MSGPACK_CURRENT_KEYCODE, "keycode"},
+    {MSGPACK_CURRENT_LAYER, "layer"},
+    {MSGPACK_CURRENT_LEDSTATE, "ledstate"}
+};
+
 void mpack_assert_fail(const char* message) {
     printf("MessagePack assertion failed: %s\n", message);
     while(1) {} // Halt on assertion failure
@@ -24,6 +36,31 @@ bool add_msgpack_pair(msgpack_t * km, uint8_t key, uint8_t value) {
     km->pairs[km->count].value = value;
     km->count++;
     return true;
+}
+
+bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
+    mpack_writer_t writer;
+
+    mpack_writer_init(&writer, (char *)data.data(), data.size());
+
+    // Write format identifier string "MPACK"
+    mpack_write_cstr(&writer, "QMV1");
+
+    // Start writing map with number of pairs
+    mpack_start_map(&writer, km->count);
+    // Loop through all pairs
+    for (size_t i = 0; i < km->count; i++) {
+        mpack_write_uint(&writer, km->pairs[i].key);
+        mpack_write_uint(&writer, km->pairs[i].value);
+    }
+
+    mpack_finish_map(&writer);
+    mpack_finish_array(&writer);
+
+    if (mpack_writer_destroy(&writer) == mpack_ok) {
+        return true;
+    }
+    return false;
 }
 
 void send_msgpack(msgpack_t * km) {

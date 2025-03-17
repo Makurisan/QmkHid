@@ -1,5 +1,6 @@
-#include "hid.h"
 #include <optional>
+#include <format> // For std::format
+#include "hid.h"
 
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")

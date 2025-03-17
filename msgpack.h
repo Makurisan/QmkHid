@@ -20,6 +20,11 @@
 #include <vector>
 #include <string>
 
+#define MSGPACK_UNKNOWN         0   
+#define MSGPACK_CURRENT_KEYCODE 1
+#define MSGPACK_CURRENT_LAYER   2
+#define MSGPACK_CURRENT_LEDSTATE 3
+
 
 #define MSGPACK_PAIR_ARRAY_SIZE 10
 #define RAW_EPSIZE 64
@@ -36,8 +41,10 @@ typedef struct {
     msgpack_pair_t pairs[MSGPACK_PAIR_ARRAY_SIZE];
 } msgpack_t;
 
+
 bool add_msgpack_pair(msgpack_t *msgpack, uint8_t key, uint8_t value);
 void init_msgpack(msgpack_t *msgpack);
 void send_msgpack(msgpack_t *msgpack);
 bool read_msgpack(msgpack_t* km, std::vector<uint8_t>& data);
 bool msgpack_log(msgpack_t* km);
+bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data);

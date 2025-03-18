@@ -9,7 +9,7 @@
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
-std::atomic<bool> stopThread{ false };
+//static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -92,15 +92,15 @@ std::optional<std::string> GetUsbPortNumber(HDEVINFO deviceInfoSet, SP_DEVINFO_D
     return std::nullopt;
 }
 
-std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
-    HID hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
+bool hid_open(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
+    //hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
 
     HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (deviceInfo == INVALID_HANDLE_VALUE) {
         std::cerr << "Failed to get device info\n";
-        return std::nullopt;
+        return false;
     }
 
     SP_DEVICE_INTERFACE_DATA interfaceData;
@@ -131,7 +131,7 @@ std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
                         }
                         free(detailData);
                         SetupDiDestroyDeviceInfoList(deviceInfo);
-                        return hid;
+                        return true;
                     }
                 }
                 CloseHandle(hidDevice);
@@ -140,19 +140,20 @@ std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
         free(detailData);
     }
     SetupDiDestroyDeviceInfoList(deviceInfo);
-    return std::nullopt;
+    return false;
 }
 
 void hid_close(HID& hid) {
+    hid_stopread_thread(hid);
     CloseHandle(hid.handle);
 	hid.handle = INVALID_HANDLE_VALUE;
 }
 
-bool hid_connect(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
-    auto _hid = hid_open(vid, pid, sernbr);
-    if (!_hid)
+bool hid_connect(HID &hid, USHORT vid, USHORT pid, HIDReadCallback callback) {
+    auto retHid = hid_open(hid,vid, pid, 0);
+    if (!retHid)
 		return false;
-	hid = _hid.value();
+    hid_read_thread(hid, callback, nullptr);
     return true;
 }
 
@@ -175,13 +176,15 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
 
     if (ReadFile(hid.handle, data.data(), static_cast<DWORD>(data.size()), &bytesRead, &overlapped) ||
         GetLastError() == ERROR_IO_PENDING) {
-        HANDLE events[] = { overlapped.hEvent, hid.stopReadEvent};
+        HANDLE stEvent = *hid.stopReadEvent;
+        HANDLE events[] = { overlapped.hEvent,  *hid.stopReadEvent };
         DWORD waitResult = WaitForMultipleObjects(ARRAYSIZE(events), events, FALSE, INFINITE); // Wait for either event
         if (waitResult == WAIT_OBJECT_0) {
             if (GetOverlappedResult(hid.handle, &overlapped, &bytesRead, FALSE)) {
                 if (bytesRead > 0) {
                     data.resize(bytesRead);
                     readSuccess = true;
+                    return readSuccess;
                 }
             }
         }
@@ -200,10 +203,10 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
 }
 
 void hid_stopread_thread(HID& hid) {
-    if (hid.stopFlag) {
-        *hid.stopFlag = true;
+    *hid.stopFlag = true; // Set the stop flag
+    if (hid.stopReadEvent && *hid.stopReadEvent) {
+        SetEvent(*hid.stopReadEvent); // Signal the stop event
     }
-    SetEvent(hid.stopReadEvent); // Signal the stop event
     if (hid.readThread && hid.readThread->joinable()) {
         hid.readThread->join();
     }
@@ -215,23 +218,25 @@ void hid_log(const std::string& format_str, auto&&... args) {
     OutputDebugString(("HID: " + fmtstr).c_str());
 }
 
-void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
-
-    hid.stopReadEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
-    hid.readThread = std::make_shared<std::thread>([&hid, callback, userData]() {
-        while (!*hid.stopFlag) {
-            std::vector<uint8_t> data;
-            if (hid_read(hid, data)) {
-                callback(hid, data, userData);
-            }
-            // Add a small sleep to prevent busy-waiting
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+static void hid_read_thread_func(HID& hid, HIDReadCallback callback, void* userData) {
+    while (!*hid.stopFlag) {
+        std::vector<uint8_t> data;
+        if (hid_read(hid, data)) {
+            callback(hid, data, userData);
         }
-        hid_log("Read thread exiting...");
-   });
-
+        // Add a small sleep to prevent busy-waiting
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    hid_log("Read thread {} exiting...\n", "0");
 }
+
+void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
+    hid.stopReadEvent = std::make_shared<HANDLE>(CreateEvent(NULL, TRUE, FALSE, NULL));
+    hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
+
+    hid.readThread = std::make_shared<std::jthread>(hid_read_thread_func, std::ref(hid), callback, userData);
+}
+
 
 bool hid_write(HID& hid, const std::vector<uint8_t>& data) {
     DWORD bytesWritten;

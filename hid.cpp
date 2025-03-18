@@ -1,9 +1,13 @@
 #include <optional>
-#include <format> // For std::format
+#include <format> // For std::
+#include <thread>
+#include <atomic>
 #include "hid.h"
 
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
+
+std::atomic<bool> stopThread{ false };
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -68,65 +72,6 @@ void hid_caps(HID& hid) {
     }
 }
 
-void hid_open(std::vector<HID>& devices) {
-    GUID hidGuid;
-    HidD_GetHidGuid(&hidGuid);
-
-    // Get list of HID devices
-    HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL,
-        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if (deviceInfo == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to get device info\n";
-        return;
-    }
-
-    SP_DEVICE_INTERFACE_DATA interfaceData;
-    interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-
-    // Enumerate devices
-    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfo, NULL, &hidGuid, i, &interfaceData); i++) {
-        DWORD requiredSize = 0;
-        SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, NULL, 0, &requiredSize, NULL);
-
-        PSP_DEVICE_INTERFACE_DETAIL_DATA detailData =
-            (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(requiredSize);
-        detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-
-        if (SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, detailData,
-            requiredSize, NULL, NULL)) {
-            // Open HID device
-            HANDLE hidDevice = CreateFile(detailData->DevicePath,
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                NULL,
-                OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED,
-                NULL);
-
-            if (hidDevice != INVALID_HANDLE_VALUE) {
-                HIDD_ATTRIBUTES attributes;
-                if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    for (auto& device : devices) {
-                        if (attributes.VendorID == device.info.VendorID && attributes.ProductID == device.info.ProductID) {
-                            std::cerr << "Found target device: VID=" << std::hex << attributes.VendorID
-                                << " PID=" << attributes.ProductID << std::dec << std::endl;
-                            device.handle = hidDevice;
-                            device.info = attributes;
-                            break;
-                        }
-                    }
-                }
-                if (std::find_if(devices.begin(), devices.end(), [hidDevice](const HID& device) { return device.handle == hidDevice; }) == devices.end()) {
-                    CloseHandle(hidDevice);
-                }
-            }
-        }
-        free(detailData);
-    }
-
-    SetupDiDestroyDeviceInfoList(deviceInfo);
-}
-
 std::optional<std::string> GetUsbPortNumber(HDEVINFO deviceInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
     DWORD requiredSize = 0;
     SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, NULL, 0, &requiredSize);
@@ -143,15 +88,6 @@ std::optional<std::string> GetUsbPortNumber(HDEVINFO deviceInfoSet, SP_DEVINFO_D
     }
 
     return std::nullopt;
-}
-
-bool hid_reconnect(const HID& hid, const std::vector<HID>& connectedDevices) {
-    for ( auto _hid : connectedDevices) {
-        if (_hid.info.VendorID == hid.info.VendorID && _hid.info.ProductID == hid.info.ProductID && _hid.port == hid.port) {
-            return true;
-        }
-    }
-    return false;
 }
 
 std::optional<HID> hid_open(USHORT vid, USHORT pid, USHORT sernbr) {
@@ -254,24 +190,36 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
     return false;
 }
 
-void hid_read_cp(HID& hid, HIDReadCallback callback, void* userData) {
-    std::vector<uint8_t> data;
-    // dont call it always
-    if(hid_read(hid, data))
-        callback(hid, data, userData);
+void hid_stopread_thread(HID& hid) {
+    if (hid.stopFlag) {
+        *hid.stopFlag = true;
+    }
+    if (hid.readThread && hid.readThread->joinable()) {
+        hid.readThread->join();
+    }
+    hid.readThread.reset();
 }
 
-static void hid_read_thread_func(HID& hid, HIDReadCallback callback, void* userData) {
-    while (true) {
-        hid_read_cp(hid, callback, userData);
-        // Add a small sleep to prevent busy-waiting
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+void hid_log(const std::string& format_str, auto&&... args) {
+    std::string fmtstr = std::vformat(format_str, std::make_format_args(args...));
+    OutputDebugString(("HID: " + fmtstr).c_str());
 }
 
 void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
-    std::thread readThread(hid_read_thread_func, std::ref(hid), callback, userData);
-    readThread.detach();
+
+    hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
+    hid.readThread = std::make_shared<std::thread>([&hid, callback, userData]() {
+        while (!*hid.stopFlag) {
+            std::vector<uint8_t> data;
+            if (hid_read(hid, data)) {
+                callback(hid, data, userData);
+            }
+            // Add a small sleep to prevent busy-waiting
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        hid_log("Read thread exiting...");
+   });
+
 }
 
 bool hid_write(HID& hid, const std::vector<uint8_t>& data) {

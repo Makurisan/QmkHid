@@ -41,7 +41,7 @@ bool add_msgpack_pair(msgpack_t * km, uint8_t key, uint8_t value) {
 bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
     mpack_writer_t writer;
 
-    mpack_writer_init(&writer, (char *)data.data(), data.size());
+    mpack_writer_init(&writer, (char *)data.data()+1, data.size()-1);
 
     // Write format identifier string "MPACK"
     mpack_write_cstr(&writer, "QMV1");
@@ -55,7 +55,6 @@ bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
     }
 
     mpack_finish_map(&writer);
-    mpack_finish_array(&writer);
 
     if (mpack_writer_destroy(&writer) == mpack_ok) {
         return true;
@@ -64,10 +63,10 @@ bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
 }
 
 void send_msgpack(msgpack_t * km) {
-    char buffer[RAW_EPSIZE];
+    char buffer[RAW_EPSIZE] = {0};
     mpack_writer_t writer;
 
-    mpack_writer_init(&writer, buffer, sizeof(buffer));
+    mpack_writer_init(&writer, buffer+1, sizeof(buffer)-1);
 
     // Write format identifier string "MPACK"
     mpack_write_cstr(&writer, "QMV1");
@@ -96,7 +95,7 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     // Read raw HID data
     if (data.size() < RAW_EPSIZE) return false;
 
-    mpack_reader_init_data(&reader, (char*)data.data(), data.size());
+    mpack_reader_init_data(&reader, (char*)data.data()+1, data.size()-1);
 
     // Check format identifier
     char format[5];
@@ -136,7 +135,7 @@ bool msgpack_log(msgpack_t* km) {
     std::string outmsg;
 
     for (uint32_t i = 0; i < km->count; i++) {
-        outmsg += std::format("Key: {}, Value: {}\n", km->pairs[i].key, km->pairs[i].value);
+        outmsg += std::format("Key: {}, Value: {}\n", msgpack_keys[km->pairs[i].key].name, km->pairs[i].value);
     }
 
 

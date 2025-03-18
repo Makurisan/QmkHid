@@ -9,7 +9,10 @@
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
-//static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
+static void hid_stop_read_thread(HID& hid);
+static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
+static bool hid_open(HID& hid, USHORT vid, USHORT pid, USHORT sernbr);
+static void hid_log(const std::string& format_str, auto&&... args);
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -46,31 +49,34 @@ void hid_caps(HID& hid) {
 
     if (HidD_GetPreparsedData(hid.handle, &preparsedData)) {
         if (HidP_GetCaps(preparsedData, &caps) == HIDP_STATUS_SUCCESS) {
-            std::cout << "Usage Page: " << caps.UsagePage << std::endl;
-            std::cout << "Usage: " << caps.Usage << std::endl;
-            std::cout << "Input Report Byte Length: " << caps.InputReportByteLength << std::endl;
             hid.inEplength = static_cast<uint16_t>(caps.InputReportByteLength);
             hid.outEplength = static_cast<uint16_t>(caps.OutputReportByteLength);
-            std::cout << "Output Report Byte Length: " << caps.OutputReportByteLength << std::endl;
-            std::cout << "Feature Report Byte Length: " << caps.FeatureReportByteLength << std::endl;
-            std::cout << "Number of Link Collection Nodes: " << caps.NumberLinkCollectionNodes << std::endl;
-            std::cout << "Number of Input Button Caps: " << caps.NumberInputButtonCaps << std::endl;
-            std::cout << "Number of Input Value Caps: " << caps.NumberInputValueCaps << std::endl;
-            std::cout << "Number of Input Data Indices: " << caps.NumberInputDataIndices << std::endl;
-            std::cout << "Number of Output Button Caps: " << caps.NumberOutputButtonCaps << std::endl;
-            std::cout << "Number of Output Value Caps: " << caps.NumberOutputValueCaps << std::endl;
-            std::cout << "Number of Output Data Indices: " << caps.NumberOutputDataIndices << std::endl;
-            std::cout << "Number of Feature Button Caps: " << caps.NumberFeatureButtonCaps << std::endl;
-            std::cout << "Number of Feature Value Caps: " << caps.NumberFeatureValueCaps << std::endl;
-            std::cout << "Number of Feature Data Indices: " << caps.NumberFeatureDataIndices << std::endl;
+           
+            hid_log("-----------------------------------------\n");
+            hid_log("VID: 0x{:04X}, PID: 0x{:04X}, SerialNr: 0x{:04X}\n", hid.info.VendorID, hid.info.ProductID, hid.info.VersionNumber);
+            hid_log("Usage Page: {}\n", caps.UsagePage);
+            hid_log("Usage: {}\n", caps.Usage);
+            hid_log("Input Report Byte Length: {}\n", caps.InputReportByteLength);
+            hid_log("Output Report Byte Length: {}\n", caps.OutputReportByteLength);
+            hid_log("Feature Report Byte Length: {}\n", caps.FeatureReportByteLength);
+            hid_log("Number of Link Collection Nodes: {}\n", caps.NumberLinkCollectionNodes);
+            hid_log("Number of Input Button Caps: {}\n", caps.NumberInputButtonCaps);
+            hid_log("Number of Input Value Caps: {}\n", caps.NumberInputValueCaps);
+            hid_log("Number of Input Data Indices: {}\n", caps.NumberInputDataIndices);
+            hid_log("Number of Output Button Caps: {}\n", caps.NumberOutputButtonCaps);
+            hid_log("Number of Output Value Caps: {}\n", caps.NumberOutputValueCaps);
+            hid_log("Number of Output Data Indices: {}\n", caps.NumberOutputDataIndices);
+            hid_log("Number of Feature Button Caps: {}\n", caps.NumberFeatureButtonCaps);
+            hid_log("Number of Feature Value Caps: {}\n", caps.NumberFeatureValueCaps);
+            hid_log("Number of Feature Data Indices: {}\n", caps.NumberFeatureDataIndices);
         }
         else {
-            std::cerr << "HidP_GetCaps failed with error: " << GetLastErrorAsString() << std::endl;
+            hid_log("HidP_GetCaps failed with error: {}\n", GetLastErrorAsString());
         }
         HidD_FreePreparsedData(preparsedData);
     }
     else {
-        std::cerr << "HidD_GetPreparsedData failed with error: " << GetLastErrorAsString() << std::endl;
+        hid_log("HidD_GetPreparsedData failed with error: {}\n", GetLastErrorAsString());
     }
 }
 
@@ -144,7 +150,7 @@ bool hid_open(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
 }
 
 void hid_close(HID& hid) {
-    hid_stopread_thread(hid);
+    hid_stop_read_thread(hid);
     CloseHandle(hid.handle);
 	hid.handle = INVALID_HANDLE_VALUE;
 }
@@ -176,7 +182,6 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
 
     if (ReadFile(hid.handle, data.data(), static_cast<DWORD>(data.size()), &bytesRead, &overlapped) ||
         GetLastError() == ERROR_IO_PENDING) {
-        HANDLE stEvent = *hid.stopReadEvent;
         HANDLE events[] = { overlapped.hEvent,  *hid.stopReadEvent };
         DWORD waitResult = WaitForMultipleObjects(ARRAYSIZE(events), events, FALSE, INFINITE); // Wait for either event
         if (waitResult == WAIT_OBJECT_0) {
@@ -194,7 +199,7 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
         }
 }
     else {
-        std::cerr << "ReadFile failed with error: " << GetLastErrorAsString() << std::endl;
+        hid_log("ReadFile failed with error:{}\n", GetLastErrorAsString());
     }
 
     CloseHandle(overlapped.hEvent);
@@ -202,13 +207,14 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
     return readSuccess;
 }
 
-void hid_stopread_thread(HID& hid) {
+void hid_stop_read_thread(HID& hid) {
     *hid.stopFlag = true; // Set the stop flag
     if (hid.stopReadEvent && *hid.stopReadEvent) {
         SetEvent(*hid.stopReadEvent); // Signal the stop event
     }
-    if (hid.readThread && hid.readThread->joinable()) {
-        hid.readThread->join();
+    if (hid.readThread) {
+        hid.readThread->request_stop(); // Request the thread to stop
+        hid.readThread->join(); // Join the thread to ensure it has exited
     }
     hid.readThread.reset();
 }
@@ -218,14 +224,14 @@ void hid_log(const std::string& format_str, auto&&... args) {
     OutputDebugString(("HID: " + fmtstr).c_str());
 }
 
-static void hid_read_thread_func(HID& hid, HIDReadCallback callback, void* userData) {
-    while (!*hid.stopFlag) {
+static void hid_read_func_thread(HID& hid, HIDReadCallback callback, void* userData) {
+    while (WaitForSingleObject(*hid.stopReadEvent, 10) == WAIT_TIMEOUT) {
         std::vector<uint8_t> data;
         if (hid_read(hid, data)) {
             callback(hid, data, userData);
         }
-        // Add a small sleep to prevent busy-waiting
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		// not needed if WaitForSingeObject is used
+        //std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     hid_log("Read thread {} exiting...\n", "0");
 }
@@ -234,7 +240,7 @@ void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
     hid.stopReadEvent = std::make_shared<HANDLE>(CreateEvent(NULL, TRUE, FALSE, NULL));
     hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
 
-    hid.readThread = std::make_shared<std::jthread>(hid_read_thread_func, std::ref(hid), callback, userData);
+    hid.readThread = std::make_shared<std::jthread>(hid_read_func_thread, std::ref(hid), callback, userData);
 }
 
 
@@ -253,8 +259,7 @@ bool hid_write(HID& hid, const std::vector<uint8_t>& data) {
         }
     }
     else {
-        DWORD error = GetLastError();
-        std::cerr << "WriteFile failed with error: " << GetLastErrorAsString() << std::endl;
+        hid_log("WriteFile failed with error: {}", GetLastErrorAsString());
     }
     CloseHandle(overlapped.hEvent);
     return false;

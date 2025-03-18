@@ -26,6 +26,13 @@ public:
         if (mi.has_value()) _log("MI: {}\n", mi.value());
         if (port.has_value()) _log("Port: {}\n", port.value());
     }
+	bool isQMKHidInterface(const HID& hid) const {
+		std::string c_mi = mi.value();
+        if (c_mi.find("&MI_01") != std::string::npos &&
+            hid.info.ProductID == pid && hid.info.VendorID == vid)
+            return true;
+        return false;
+	}
 
 private:
     std::optional<uint16_t> vid;

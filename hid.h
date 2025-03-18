@@ -33,16 +33,13 @@ typedef struct _HID {
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);
 
 const std::string hid_error(HID& hid);
-bool hid_open(HID& hid, USHORT vid, USHORT pid, USHORT sernbr);
 void hid_close(HID& hid);
 bool hid_connect(HID& hid, USHORT vid, USHORT pid, HIDReadCallback callback);
 bool hid_read(HID& hid, std::vector<BYTE>& data);
-void hid_stopread_thread(HID& hid);
 
 bool hid_write(HID& hid, const std::vector<BYTE>& data);
 void hid_caps(HID &hid);
 
-void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
 
 #endif // HIDHELPER_H
 

@@ -97,7 +97,7 @@ HWND hChildWnd;
 std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData);
 
-void log(const std::string& format_str, auto&&... args) {
+void qmk_log(const std::string& format_str, auto&&... args) {
     std::string formatted_str = std::vformat(format_str, std::make_format_args(args...));
     OutputDebugString(formatted_str.c_str());
 }
@@ -258,7 +258,6 @@ bool OpenHidDevice(QMKHID& qmkData, const std::string& deviceName) {
             // Set the hid_read() function to be non-blocking.
             hidData->readData.resize(hidData->hid->inEplength);
             hidData->writeData.resize(hidData->hid->outEplength);
-            hid_read_thread(*hidData->hid, readCallback, nullptr);
             anyDeviceOpened = true;
         }
     }
@@ -423,7 +422,7 @@ std::optional<HIDData*> findMatchingHIDDevice(QMKHID& qmkData, const std::string
         if (hidData.hid->port.has_value()) {
             std::string upperPort = *hidData.hid->port;
             std::transform(upperPort.begin(), upperPort.end(), upperPort.begin(), [](unsigned char c) { return std::toupper(c); });
-            log("Hid port: {} == {}\n", upperPort, upperDevName);
+            qmk_log("Hid port: {} == {}\n", upperPort, upperDevName);
             if (strstr(upperDevName.c_str(), upperPort.c_str()))
                 return &hidData;
         }
@@ -439,15 +438,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
             if (pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                 PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
-                // Check if the device matches our VID and PID
+
                 auto hidData = findMatchingHIDDevice(qmkData, pDevInf->dbcc_name);
                 if (hidData.has_value()) {
-                    // Remove comes more than one, because of the multiple interfaces
-                    if ((*hidData)->hid->handle != INVALID_HANDLE_VALUE) {
-                        hid_close(*(*hidData)->hid);
-                        (*hidData)->curLayer = 0;
-                        ShowNotification(**hidData, "FootSwitch Device Status:", "Device unplugged");
+
+                    // Check if the device matches our VID and PID
+                    DeviceNameParser devicName(pDevInf->dbcc_name);
+                    if (hidData.has_value() && devicName.isQMKHidInterface(*(*hidData)->hid)) {
+                        qmk_log("Device removed: {}\n", pDevInf->dbcc_name);
+                        // Remove comes more than one, because of the multiple interfaces
+                        if (hidData.has_value() && (*hidData)->hid->handle != INVALID_HANDLE_VALUE) {
+                            hid_close(*(*hidData)->hid);
+                            (*hidData)->curLayer = 0;
+                            ShowNotification(**hidData, "FootSwitch Device Status:", "Device unplugged");
+                        }
+
                     }
+
                 }
             }
         }
@@ -485,11 +492,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
             case ID_TRAY_WRITE: {
-                // Example data to write
-                //std::vector<BYTE> data(qmkData.hidData[0].hid.outEplength, 0x00);
-                //const char* message = "Tray data...";
-                //std::copy(message, message + std::min<size_t>(strlen(message), data.size()), data.begin());
-
                 if (hid_write(*qmkData.hidData[0].hid, qmkData.hidData[0].writeData)) {
                     ShowNotification(qmkData.hidData[0], "HID Write", "Data written successfully");
                 }
@@ -524,13 +526,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         if (wParam) {
             // System is shutting down or logging off
             for (auto& hidData : qmkData.hidData) {
-                hid_stopread_thread(*hidData.hid);
+                hid_close(*hidData.hid);
             }
             Shell_NotifyIcon(NIM_DELETE, &nid);
             PostQuitMessage(0);
         }
         break;
     case WM_CLOSE:
+		ShowWindow(hwnd, SW_HIDE);
+		break;
     case WM_DESTROY:
         Shell_NotifyIcon(NIM_DELETE, &nid);
         PostQuitMessage(0);
@@ -658,7 +662,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     Shell_NotifyIcon(NIM_DELETE, &nid);
     for (auto& hidData : qmkData.hidData) {
-        hid_stopread_thread(*hidData.hid);
+        hid_close(*hidData.hid);
     }
     return 0;
 }

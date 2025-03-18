@@ -2,6 +2,8 @@
 #include <format> // For std::
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include "hid.h"
 
 #pragma comment(lib, "setupapi.lib")
@@ -169,31 +171,39 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
     }
 
     data.resize(hid.inEplength);
+    bool readSuccess = false;
+
     if (ReadFile(hid.handle, data.data(), static_cast<DWORD>(data.size()), &bytesRead, &overlapped) ||
         GetLastError() == ERROR_IO_PENDING) {
-        if (WaitForSingleObject(overlapped.hEvent, INFINITE) == WAIT_OBJECT_0) {
+        HANDLE events[] = { overlapped.hEvent, hid.stopReadEvent};
+        DWORD waitResult = WaitForMultipleObjects(ARRAYSIZE(events), events, FALSE, INFINITE); // Wait for either event
+        if (waitResult == WAIT_OBJECT_0) {
             if (GetOverlappedResult(hid.handle, &overlapped, &bytesRead, FALSE)) {
                 if (bytesRead > 0) {
                     data.resize(bytesRead);
-                    CloseHandle(overlapped.hEvent);
-                    return true;
+                    readSuccess = true;
                 }
             }
         }
-    }
+        else if (waitResult == WAIT_OBJECT_0 + 1) {
+            // Stop event was signaled
+            readSuccess = false;
+        }
+}
     else {
         std::cerr << "ReadFile failed with error: " << GetLastErrorAsString() << std::endl;
     }
 
     CloseHandle(overlapped.hEvent);
     data.clear();
-    return false;
+    return readSuccess;
 }
 
 void hid_stopread_thread(HID& hid) {
     if (hid.stopFlag) {
         *hid.stopFlag = true;
     }
+    SetEvent(hid.stopReadEvent); // Signal the stop event
     if (hid.readThread && hid.readThread->joinable()) {
         hid.readThread->join();
     }
@@ -207,6 +217,7 @@ void hid_log(const std::string& format_str, auto&&... args) {
 
 void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
 
+    hid.stopReadEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
     hid.readThread = std::make_shared<std::thread>([&hid, callback, userData]() {
         while (!*hid.stopFlag) {

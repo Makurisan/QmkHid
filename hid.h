@@ -26,6 +26,7 @@ typedef struct _HID {
     std::optional<std::string> port;
     std::shared_ptr<std::atomic<bool>> stopFlag;
     std::shared_ptr<std::thread> readThread;
+    HANDLE stopReadEvent;
 }HID;
 
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);

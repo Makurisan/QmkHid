@@ -27,21 +27,14 @@ public:
         if (mi.has_value()) _log("MI: {}\n", mi.value());
         if (port.has_value()) _log("Port: {}\n", port.value());
     }
-	bool isQMKHidInterface(const HID& hid) const {
+	bool isHidInterface(const std::string& iface) const {
 		std::string c_mi = mi.value();
-        if (c_mi.find("&MI_01") != std::string::npos &&
-            hid.info.pid == pid && hid.info.vid == vid)
+        // check something like "&MI_01"
+        if (c_mi.find(iface) != std::string::npos)
             return true;
         return false;
 	}
-    bool isQMKMI01HidInterface() const {
-        if (!mi.has_value())
-            return false;
-        std::string c_mi = mi.value();
-        if (c_mi.find("&MI_01") != std::string::npos)
-            return true;
-        return false;
-    }
+
 private:
     std::optional<uint16_t> vid;
     std::optional<uint16_t> pid;
@@ -70,8 +63,8 @@ private:
             if (part.find("PID_") != std::string::npos) {
                 pid = std::stoi(part.substr(part.find("PID_") + 4), nullptr, 16);
             }
-            if (part.find("&MI_01") != std::string::npos) {
-                size_t pos = part.find("&MI_");
+            auto pos = part.find("&MI_");
+            if (pos != std::string::npos) {
                 mi = part.substr(pos, 6); // Extract "&MI_01" or "&mi_01"
             }
             if (i == 2) {

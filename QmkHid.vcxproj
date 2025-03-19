@@ -31,7 +31,6 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
-    <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -138,7 +137,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
-    <ClInclude Include="hid.h" />
+    <ClInclude Include="hidapi\hidapi.h" />
+    <ClInclude Include="hidapi\hidapi_cfgmgr32.h" />
+    <ClInclude Include="hidapi\hidapi_descriptor_reconstruct.h" />
+    <ClInclude Include="hidapi\hidapi_hidclass.h" />
+    <ClInclude Include="hidapi\hidapi_hidpi.h" />
+    <ClInclude Include="hidapi\hidapi_hidsdi.h" />
+    <ClInclude Include="hidapi\hidapi_winapi.h" />
+    <ClInclude Include="hidex.h" />
     <ClInclude Include="KeyCode.h" />
     <ClInclude Include="keycode_lookup.h" />
     <ClInclude Include="msgpack.h" />
@@ -149,7 +155,8 @@
     <ClInclude Include="TimerHandler.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="hid.cpp" />
+    <ClCompile Include="hidapi\hid.c" />
+    <ClCompile Include="hidex.cpp" />
     <ClCompile Include="keycode_lookup.cpp" />
     <ClCompile Include="msgpack.cpp" />
     <ClCompile Include="QmkHid.cpp" />

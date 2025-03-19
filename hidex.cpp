@@ -3,12 +3,17 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <locale>
+#include <codecvt>
 #include <condition_variable>
-#include "hid.h"
+#include "hidex.h"
 #include "DeviceNameWindow.h"
+#include "hidapi/hidapi.h"
 
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
+
+extern "C" struct hid_device_info* hid_internal_get_device_info(const wchar_t* path, HANDLE handle);
 
 static void hid_stop_read_thread(HID& hid);
 static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
@@ -17,6 +22,16 @@ static void hid_log(const std::string& format_str, auto&&... args);
 
 static std::vector<DeviceNameParser> _systemHids;
 static std::vector<DeviceSupport> _supportedDevices;
+
+std::string wstringToString(const std::wstring& wstr) {
+    if (wstr.empty()) {
+        return std::string();
+    }
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -84,7 +99,63 @@ void hid_caps(HID& hid) {
     }
 }
 
-void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSupport>& supported) {
+void hid_device_info_log(const hid_device_info* dev) {
+    if (dev == nullptr) {
+        return;
+    }
+
+    hid_log("Device Info:\n");
+    hid_log("  Path: {}\n", dev->path ? dev->path : "N/A");
+    hid_log("  Vendor ID: 0x{:04X}\n", dev->vendor_id);
+    hid_log("  Product ID: 0x{:04X}\n", dev->product_id);
+    hid_log("  Serial Number: {}\n", dev->serial_number ? dev->serial_number : L"N/A");
+    hid_log("  Release Number: 0x{:04X}\n", dev->release_number);
+    hid_log("  Manufacturer String: {}\n", dev->manufacturer_string ? dev->manufacturer_string : L"N/A");
+    hid_log("  Product String: {}\n", dev->product_string ? dev->product_string : L"N/A");
+    hid_log("  Usage Page: 0x{:04X}\n", dev->usage_page);
+    hid_log("  Usage: 0x{:04X}\n", dev->usage);
+    hid_log("  Interface Number: {}\n", dev->interface_number);
+}
+
+void hid_list(std::vector<DeviceSupport> system, const std::vector<DeviceSupport>& supported){
+
+    hid_init();
+
+    hid_device_info * devs = hid_enumerate(0, 0);
+    struct hid_device_info* d = devs;
+    _systemHids.clear();
+
+    hid_log("{} ...........................................  \n", __FUNCTION__);
+
+    while (d) {
+
+		auto cHidNameParser = DeviceNameParser(d->path);
+		if (cHidNameParser.getVID().has_value() && cHidNameParser.getPID().has_value()) {
+			auto it = std::find_if(supported.begin(), supported.end(), [&cHidNameParser](const DeviceSupport& supp) {
+				return cHidNameParser.getVID().value() == supp.vid && cHidNameParser.getPID().value() == supp.pid;
+				});
+			if (it != supported.end()) {
+			    DeviceSupport fSupport = *it;
+                fSupport.serial_number = wstringToString(d->serial_number);
+                fSupport.manufactor = wstringToString(d->manufacturer_string);
+                if (cHidNameParser.getMI().has_value() && cHidNameParser.getMI() == fSupport.iface) {
+                    system.push_back(fSupport);
+                    hid_log("Relevant Device: {} - {} \n", d->manufacturer_string, d->path);
+                    hid_device_info_log(d);
+                }else
+				if (!cHidNameParser.getMI().has_value() && fSupport.iface == "") {
+                    system.push_back(fSupport);
+                    hid_log("Relevant Device: {} \n", d->path);
+				}
+			}
+		}
+		d = d->next;
+    }
+    hid_free_enumeration(devs);
+    hid_exit();
+}
+
+void _hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSupport>& supported) {
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
 
@@ -110,7 +181,7 @@ void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSup
             if (hidDevice != INVALID_HANDLE_VALUE) {
                 HIDD_ATTRIBUTES attributes;
                 if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    auto cHidNameParser = DeviceNameParser(detailData->DevicePath);
+                    auto cHidNameParser =  DeviceNameParser(detailData->DevicePath);
 
                     // Check if the vid and pid from cHidNameParser are in the supported list
                     if (cHidNameParser.getVID().has_value() && cHidNameParser.getPID().has_value()) {
@@ -143,20 +214,25 @@ void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSup
 
 void hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
 	
-    std::vector<DeviceNameParser> milist;
+    toopen.clear();
+
+    std::vector<DeviceSupport> milist;
+    std::vector<DeviceSupport> SystemOpen;
     hid_list(milist, supported);
 
+    toopen = milist;
+
+    //_hid_list(milist, supported);
     // Assign milist to toopen
-    toopen.clear();
-    for (const auto& device : milist) {
-        auto it = std::find_if(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
-            return device.getVID().has_value() && device.getPID().has_value() &&
-                device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
-            });
-        if (it != supported.end()) {
-            toopen.push_back({ device.getDevName(), it->type, device.getVID().value(), device.getPID().value(), 0 });
-        }
-    }
+    //for (const auto& device : milist) {
+    //    auto it = std::find_if(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
+    //        return device.getVID().has_value() && device.getPID().has_value() &&
+    //            device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
+    //        });
+    //    if (it != supported.end()) {
+    //        toopen.push_back({ device.getDevName(), it->type, device.getVID().value(), device.getPID().value(), 0 });
+    //    }
+    //}
 
 }
 

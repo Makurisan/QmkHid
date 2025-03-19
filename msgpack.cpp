@@ -2,7 +2,7 @@
 #include <format> // For std::format
 #include <mpack.h>
 #include "msgpack.h"
-#include "hid.h"
+#include "hidex.h"
 
 typedef struct {
     uint8_t key;

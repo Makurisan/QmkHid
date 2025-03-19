@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="hidapi">
+      <UniqueIdentifier>{74371333-3167-497a-8e4e-ec91f8caa0ee}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -25,9 +28,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="QmkHId.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="hid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="keycode_lookup.h">
@@ -45,12 +45,36 @@
     <ClInclude Include="TimerHandler.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="hidex.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_hidclass.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_hidpi.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_hidsdi.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_winapi.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_cfgmgr32.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
+    <ClInclude Include="hidapi\hidapi_descriptor_reconstruct.h">
+      <Filter>hidapi</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="QmkHid.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="hid.cpp">
+    <ClCompile Include="hidex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="keycode_lookup.cpp">
@@ -58,6 +82,9 @@
     </ClCompile>
     <ClCompile Include="msgpack.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="hidapi\hid.c">
+      <Filter>hidapi</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

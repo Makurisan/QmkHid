@@ -15,7 +15,7 @@
 #include <regex>
 #include <functional>
 
-#include "hid.h"
+#include "hidex.h"
 #include "json.hpp"
 #include "msgpack.h"
 #include "timerhandler.h"
@@ -413,11 +413,16 @@ void CreateChildWindow() {
     RegisterClassEx(&wc);
 
     // Calculate the position for the upper right corner
+    #ifdef RIGHT_TOP
     int x = workArea.right - 300;
     int y = workArea.top + 10;
-
+#else
+	int x = workArea.left + 10;
+	int y = workArea.top + 10;
+#endif
     // Create the child window
-    hChildWnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, wc.lpszClassName, "Notification", WS_POPUP, x, y, 290, 100, NULL, NULL, wc.hInstance, NULL);
+    hChildWnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, 
+        wc.lpszClassName, "Notification", WS_POPUP, x, y, 290, 100, NULL, NULL, wc.hInstance, NULL);
 
     // Set the layered window attributes to make the background transparent
     SetLayeredWindowAttributes(hChildWnd, 0, 255, LWA_ALPHA);

@@ -169,7 +169,7 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
     nid.hIcon = qmkData.hidData.size()?
-        CreateIconWithNumber(0, IsDarkTheme()): qmkData.iTrayIcon;
+        CreateIconWithNumber(qmkData.curLayer.load(), IsDarkTheme()) : qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -196,24 +196,17 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
-void ShowChildWindow() {
-    ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
-    UpdateWindow(hChildWnd);
-    // Set a timer to hide the window
-    SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
-}
-
-void ProcessLayerSwitches() {
-    InvalidateRect(hChildWnd, NULL, TRUE);
-    ShowChildWindow();
-    UpdateTrayIcon();
-}
 
 // Timer callback function
 // This function is started inside readCallback to leave the function
 void TimerLayerSwitchCallback(int curlayer, const std::string& type) {
-    qmk_log("TimerLayerSwitchCallback: {} callback function called!\n", curlayer);
-    ProcessLayerSwitches();
+    qmk_log("TimerLayerSwitchCallback: curlayer: {} type:{}  \n", curlayer, type);
+    InvalidateRect(hChildWnd, NULL, TRUE);
+    ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
+    //UpdateWindow(hChildWnd);
+    // Set a timer to hide the window
+    SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
+    UpdateTrayIcon();
 }
 
 

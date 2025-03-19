@@ -30,16 +30,19 @@ typedef struct _HID {
 } HID;
 
 typedef struct _Support {
-    std::string name; // display device name
-    uint8_t type;
-    USHORT vid;
-    USHORT pid;
-    USHORT sernbr;
+	int seqnr; // primary key, dont use
+	bool active; // 1 = active, 0 = inactive
+	std::string name; // display device name, e.g . QMK, StreamDeck
+	uint8_t type; // 0 = NoBoard, 1 = StreamDeck, 2 = QMK
+	USHORT vid; // vendor id
+	USHORT pid; // product id
+	USHORT sernbr; // serial number
     std::string iface; // MI_01, or empty
-    std::string serial_number;
+	std::string serial_number; // serial number e.g. 
     std::string manufactor;
+    std::string product;
+    std::string dev;
 }DeviceSupport;
-
 
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);
 

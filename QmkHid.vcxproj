@@ -136,6 +136,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="database.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="hidapi\hidapi.h" />
     <ClInclude Include="hidapi\hidapi_cfgmgr32.h" />
@@ -150,16 +151,19 @@
     <ClInclude Include="msgpack.h" />
     <ClInclude Include="QmkHId.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="sqlite\sqlite3.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="DeviceNameWindow.h" />
     <ClInclude Include="TimerHandler.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="database.cpp" />
     <ClCompile Include="hidapi\hid.c" />
     <ClCompile Include="hidex.cpp" />
     <ClCompile Include="keycode_lookup.cpp" />
     <ClCompile Include="msgpack.cpp" />
     <ClCompile Include="QmkHid.cpp" />
+    <ClCompile Include="sqlite\sqlite3.c" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="QmkHId.rc" />

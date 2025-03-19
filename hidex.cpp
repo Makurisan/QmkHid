@@ -13,15 +13,25 @@
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
-extern "C" struct hid_device_info* hid_internal_get_device_info(const wchar_t* path, HANDLE handle);
-
 static void hid_stop_read_thread(HID& hid);
 static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
 static bool hid_open(HID& hid, USHORT vid, USHORT pid, USHORT sernbr);
 static void hid_log(const std::string& format_str, auto&&... args);
 
-static std::vector<DeviceNameParser> _systemHids;
-static std::vector<DeviceSupport> _supportedDevices;
+#ifndef _DEBUG
+//#define hid_log(format_str, ...) whid_log(L##format_str, __VA_ARGS__)
+//#undef hid_log
+#endif
+
+void hid_log(const std::string& format_str, auto&&... args) {
+    std::string fmtstr = std::vformat(format_str, std::make_format_args(args...));
+    OutputDebugString(("HID: " + fmtstr).c_str());
+}
+
+void whid_log(const std::wstring& format_str, auto&&... args) {
+    std::wstring fmtstr = std::vformat(format_str, std::make_wformat_args(args...));
+    OutputDebugStringW((L"HID: " + fmtstr).c_str());
+}
 
 std::string wstringToString(const std::wstring& wstr) {
     if (wstr.empty()) {
@@ -70,7 +80,7 @@ void hid_caps(HID& hid) {
         if (HidP_GetCaps(preparsedData, &caps) == HIDP_STATUS_SUCCESS) {
             hid.inEplength = static_cast<uint16_t>(caps.InputReportByteLength);
             hid.outEplength = static_cast<uint16_t>(caps.OutputReportByteLength);
-           
+#ifdef _xDEBUG
             hid_log("------------------------------------------------\n");
             hid_log("VID: 0x{:04X}, PID: 0x{:04X}, SerialNr: 0x{:04X}\n", hid.info.vid, hid.info.pid, hid.info.sernr);
             hid_log("Usage Page: {}\n", caps.UsagePage);
@@ -88,6 +98,7 @@ void hid_caps(HID& hid) {
             hid_log("Number of Feature Button Caps: {}\n", caps.NumberFeatureButtonCaps);
             hid_log("Number of Feature Value Caps: {}\n", caps.NumberFeatureValueCaps);
             hid_log("Number of Feature Data Indices: {}\n", caps.NumberFeatureDataIndices);
+#endif
         }
         else {
             hid_log("HidP_GetCaps failed with error: {}\n", hid_error(hid));
@@ -103,27 +114,27 @@ void hid_device_info_log(const hid_device_info* dev) {
     if (dev == nullptr) {
         return;
     }
-
-    hid_log("Device Info:\n");
+#ifdef _DEBUG
+    whid_log(L"Device Info:\n");
     hid_log("  Path: {}\n", dev->path ? dev->path : "N/A");
-    hid_log("  Vendor ID: 0x{:04X}\n", dev->vendor_id);
-    hid_log("  Product ID: 0x{:04X}\n", dev->product_id);
-    hid_log("  Serial Number: {}\n", dev->serial_number ? dev->serial_number : L"N/A");
-    hid_log("  Release Number: 0x{:04X}\n", dev->release_number);
-    hid_log("  Manufacturer String: {}\n", dev->manufacturer_string ? dev->manufacturer_string : L"N/A");
-    hid_log("  Product String: {}\n", dev->product_string ? dev->product_string : L"N/A");
-    hid_log("  Usage Page: 0x{:04X}\n", dev->usage_page);
-    hid_log("  Usage: 0x{:04X}\n", dev->usage);
-    hid_log("  Interface Number: {}\n", dev->interface_number);
+    whid_log(L"  Vendor ID: 0x{:04X}\n", dev->vendor_id);
+    whid_log(L"  Product ID: 0x{:04X}\n", dev->product_id);
+    whid_log(L"  Serial Number: {}\n", dev->serial_number ? dev->serial_number : L"N/A");
+    whid_log(L"  Release Number: 0x{:04X}\n", dev->release_number);
+    whid_log(L"  Manufacturer String: {}\n", dev->manufacturer_string ? dev->manufacturer_string : L"N/A");
+    whid_log(L"  Product String: {}\n", dev->product_string ? dev->product_string : L"N/A");
+    whid_log(L"  Usage Page: 0x{:04X}\n", dev->usage_page);
+    whid_log(L"  Usage: 0x{:04X}\n", dev->usage);
+    whid_log(L"  Interface Number: {}\n", dev->interface_number);
+#endif
 }
 
-void hid_list(std::vector<DeviceSupport> system, const std::vector<DeviceSupport>& supported){
+void hid_list(std::vector<DeviceSupport>& system, const std::vector<DeviceSupport>& supported){
 
     hid_init();
 
     hid_device_info * devs = hid_enumerate(0, 0);
     struct hid_device_info* d = devs;
-    _systemHids.clear();
 
     hid_log("{} ...........................................  \n", __FUNCTION__);
 
@@ -138,15 +149,18 @@ void hid_list(std::vector<DeviceSupport> system, const std::vector<DeviceSupport
 			    DeviceSupport fSupport = *it;
                 fSupport.serial_number = wstringToString(d->serial_number);
                 fSupport.manufactor = wstringToString(d->manufacturer_string);
+                fSupport.product = wstringToString(d->product_string);
+                fSupport.dev = d->path;
                 if (cHidNameParser.getMI().has_value() && cHidNameParser.getMI() == fSupport.iface) {
                     system.push_back(fSupport);
-                    hid_log("Relevant Device: {} - {} \n", d->manufacturer_string, d->path);
+                    //hid_log("Relevant Device: {} \n", d->path);
                     hid_device_info_log(d);
                 }else
 				if (!cHidNameParser.getMI().has_value() && fSupport.iface == "") {
                     system.push_back(fSupport);
-                    hid_log("Relevant Device: {} \n", d->path);
-				}
+                    //hid_log("Relevant Device: {} \n", d->path);
+                    hid_device_info_log(d);
+                }
 			}
 		}
 		d = d->next;
@@ -155,84 +169,11 @@ void hid_list(std::vector<DeviceSupport> system, const std::vector<DeviceSupport
     hid_exit();
 }
 
-void _hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSupport>& supported) {
-    GUID hidGuid;
-    HidD_GetHidGuid(&hidGuid);
-
-    HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if (deviceInfo == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to get device info\n";
-        return;
-    }
-
-    SP_DEVICE_INTERFACE_DATA interfaceData;
-    interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-    _systemHids.clear();
-    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfo, NULL, &hidGuid, i, &interfaceData); i++) {
-        DWORD requiredSize = 0;
-        SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, NULL, 0, &requiredSize, NULL);
-
-        PSP_DEVICE_INTERFACE_DETAIL_DATA detailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(requiredSize);
-        detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-
-        if (SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, detailData, requiredSize, NULL, NULL)) {
-            HANDLE hidDevice = CreateFile(detailData->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-
-            if (hidDevice != INVALID_HANDLE_VALUE) {
-                HIDD_ATTRIBUTES attributes;
-                if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    auto cHidNameParser =  DeviceNameParser(detailData->DevicePath);
-
-                    // Check if the vid and pid from cHidNameParser are in the supported list
-                    if (cHidNameParser.getVID().has_value() && cHidNameParser.getPID().has_value()) {
-
-                        auto it = std::find_if(supported.begin(), supported.end(), [&cHidNameParser](const DeviceSupport& supp) {
-                            return cHidNameParser.getVID().value() == supp.vid && cHidNameParser.getPID().value() == supp.pid;
-                            });
-
-                        if (it != supported.end()) {
-                            hid_log("Relevant Device: {} \n", detailData->DevicePath);
-                            const DeviceSupport& fSupport = *it;
-                            if (cHidNameParser.getMI().has_value() && cHidNameParser.getMI() == fSupport.iface) {
-                                _systemHids.push_back(cHidNameParser);
-                                _topen.push_back(cHidNameParser);
-                            }
-                            if (!cHidNameParser.getMI().has_value() && fSupport.iface == "") {
-                                _systemHids.push_back(cHidNameParser);
-                                _topen.push_back(cHidNameParser);
-                            }
-                        }
-                    }
-                }
-                CloseHandle(hidDevice);
-            }
-        }
-        free(detailData);
-    }
-    SetupDiDestroyDeviceInfoList(deviceInfo);
-}
-
 void hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
 	
     toopen.clear();
-
-    std::vector<DeviceSupport> milist;
     std::vector<DeviceSupport> SystemOpen;
-    hid_list(milist, supported);
-
-    toopen = milist;
-
-    //_hid_list(milist, supported);
-    // Assign milist to toopen
-    //for (const auto& device : milist) {
-    //    auto it = std::find_if(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
-    //        return device.getVID().has_value() && device.getPID().has_value() &&
-    //            device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
-    //        });
-    //    if (it != supported.end()) {
-    //        toopen.push_back({ device.getDevName(), it->type, device.getVID().value(), device.getPID().value(), 0 });
-    //    }
-    //}
+    hid_list(toopen, supported);
 
 }
 
@@ -327,11 +268,6 @@ void hid_stop_read_thread(HID& hid) {
         hid.readThread->join(); // Join the thread to ensure it has exited
     }
     hid.readThread.reset();
-}
-
-void hid_log(const std::string& format_str, auto&&... args) {
-    std::string fmtstr = std::vformat(format_str, std::make_format_args(args...));
-    OutputDebugString(("HID: " + fmtstr).c_str());
 }
 
 static void hid_read_func_thread(HID& hid, HIDReadCallback callback, void* userData) {

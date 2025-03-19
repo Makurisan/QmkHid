@@ -16,6 +16,9 @@
     <Filter Include="hidapi">
       <UniqueIdentifier>{74371333-3167-497a-8e4e-ec91f8caa0ee}</UniqueIdentifier>
     </Filter>
+    <Filter Include="sqlite">
+      <UniqueIdentifier>{58ea4a05-632b-41eb-b49a-7d63a18568f8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -25,9 +28,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Resource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="QmkHId.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="keycode_lookup.h">
@@ -69,6 +69,15 @@
     <ClInclude Include="hidapi\hidapi_descriptor_reconstruct.h">
       <Filter>hidapi</Filter>
     </ClInclude>
+    <ClInclude Include="sqlite\sqlite3.h">
+      <Filter>sqlite</Filter>
+    </ClInclude>
+    <ClInclude Include="database.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="QmkHId.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="QmkHid.cpp">
@@ -85,6 +94,12 @@
     </ClCompile>
     <ClCompile Include="hidapi\hid.c">
       <Filter>hidapi</Filter>
+    </ClCompile>
+    <ClCompile Include="sqlite\sqlite3.c">
+      <Filter>sqlite</Filter>
+    </ClCompile>
+    <ClCompile Include="database.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

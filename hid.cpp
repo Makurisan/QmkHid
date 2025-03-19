@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include "hid.h"
+#include "DeviceNameWindow.h"
 
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
@@ -13,6 +14,9 @@ static void hid_stop_read_thread(HID& hid);
 static void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData);
 static bool hid_open(HID& hid, USHORT vid, USHORT pid, USHORT sernbr);
 static void hid_log(const std::string& format_str, auto&&... args);
+
+static std::vector<DeviceNameParser> _systemHids;
+static std::vector<DeviceSupport> _supportedDevices;
 
 static std::string GetLastErrorAsString() {
     DWORD error = GetLastError();
@@ -53,7 +57,7 @@ void hid_caps(HID& hid) {
             hid.outEplength = static_cast<uint16_t>(caps.OutputReportByteLength);
            
             hid_log("-----------------------------------------\n");
-            hid_log("VID: 0x{:04X}, PID: 0x{:04X}, SerialNr: 0x{:04X}\n", hid.info.VendorID, hid.info.ProductID, hid.info.VersionNumber);
+            hid_log("VID: 0x{:04X}, PID: 0x{:04X}, SerialNr: 0x{:04X}\n", hid.info.vid, hid.info.pid, hid.info.sernr);
             hid_log("Usage Page: {}\n", caps.UsagePage);
             hid_log("Usage: {}\n", caps.Usage);
             hid_log("Input Report Byte Length: {}\n", caps.InputReportByteLength);
@@ -80,38 +84,19 @@ void hid_caps(HID& hid) {
     }
 }
 
-std::optional<std::string> GetUsbPortNumber(HDEVINFO deviceInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
-    DWORD requiredSize = 0;
-    SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, NULL, 0, &requiredSize);
-    std::vector<char> buffer(requiredSize);
-    if (!SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, buffer.data(), requiredSize, &requiredSize)) {
-        return std::nullopt;
-    }
-
-    std::string deviceInstanceId(buffer.data());
-    size_t pos = deviceInstanceId.find_last_of('\\');
-    if (pos != std::string::npos) {
-        std::string portNumber = deviceInstanceId.substr(pos + 1);
-        return portNumber;
-    }
-
-    return std::nullopt;
-}
-
-bool hid_open(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
-    //hid = { INVALID_HANDLE_VALUE, 0, 0, {} };
+void hid_list(std::vector<DeviceNameParser>& _topen) {
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
 
     HDEVINFO deviceInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (deviceInfo == INVALID_HANDLE_VALUE) {
         std::cerr << "Failed to get device info\n";
-        return false;
+        return;
     }
 
     SP_DEVICE_INTERFACE_DATA interfaceData;
     interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-
+    _systemHids.clear();
     for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfo, NULL, &hidGuid, i, &interfaceData); i++) {
         DWORD requiredSize = 0;
         SetupDiGetDeviceInterfaceDetail(deviceInfo, &interfaceData, NULL, 0, &requiredSize, NULL);
@@ -125,19 +110,11 @@ bool hid_open(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
             if (hidDevice != INVALID_HANDLE_VALUE) {
                 HIDD_ATTRIBUTES attributes;
                 if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    if (attributes.VendorID == vid && attributes.ProductID == pid) {
-                        hid.handle = hidDevice;
-                        hid.info = attributes;
-                        hid_caps(hid);
-
-                        SP_DEVINFO_DATA devInfoData;
-                        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-                        if (SetupDiEnumDeviceInfo(deviceInfo, i, &devInfoData)) {
-                            hid.port = GetUsbPortNumber(deviceInfo, devInfoData);
-                        }
-                        free(detailData);
-                        SetupDiDestroyDeviceInfoList(deviceInfo);
-                        return true;
+                    auto cHidNameParser = DeviceNameParser(detailData->DevicePath);
+                    if (cHidNameParser.isQMKMI01HidInterface()) {
+                        _systemHids.push_back(cHidNameParser);
+                        _topen.push_back(cHidNameParser);
+                        hid_log("Added Devie: {}", detailData->DevicePath);
                     }
                 }
                 CloseHandle(hidDevice);
@@ -146,8 +123,55 @@ bool hid_open(HID &hid, USHORT vid, USHORT pid, USHORT sernbr) {
         free(detailData);
     }
     SetupDiDestroyDeviceInfoList(deviceInfo);
+}
+
+void hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
+	
+    std::vector<DeviceNameParser> milist;
+    hid_list(milist);
+
+    milist.erase(std::remove_if(milist.begin(), milist.end(), [&supported](const DeviceNameParser& device) {
+        return std::none_of(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
+            return device.getVID().has_value() && device.getPID().has_value() &&
+                device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
+            });
+        }), milist.end());
+
+    // Assign milist to toopen
+    toopen.clear();
+    for (const auto& device : milist) {
+        auto it = std::find_if(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
+            return device.getVID().has_value() && device.getPID().has_value() &&
+                device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
+            });
+        if (it != supported.end()) {
+            toopen.push_back({ device.getDevName(), it->type, device.getVID().value(), device.getPID().value(), 0 });
+        }
+    }
+
+}
+
+bool hid_open(HID &hid, const std::string& devName) {
+
+    hid.handle = CreateFile(devName.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+
+	if (hid.handle != INVALID_HANDLE_VALUE) {
+        DeviceNameParser devNameParse(devName);
+		HIDD_ATTRIBUTES attributes;
+		if (HidD_GetAttributes(hid.handle, &attributes)) {
+            hid.info.vid = attributes.VendorID;
+            hid.info.pid = attributes.ProductID;
+            hid.info.sernr = attributes.VersionNumber;
+            hid.info.devname = devName;
+            hid.port = devNameParse.getPort();
+            hid_caps(hid);
+			return true;
+		}
+		CloseHandle(hid.handle);
+	}
     return false;
 }
+
 
 void hid_close(HID& hid) {
     hid_stop_read_thread(hid);
@@ -155,8 +179,8 @@ void hid_close(HID& hid) {
 	hid.handle = INVALID_HANDLE_VALUE;
 }
 
-bool hid_connect(HID &hid, USHORT vid, USHORT pid, HIDReadCallback callback) {
-    auto retHid = hid_open(hid,vid, pid, 0);
+bool hid_connect(HID &hid, std::string devname, HIDReadCallback callback) {
+    auto retHid = hid_open(hid, devname);
     if (!retHid)
 		return false;
     hid_read_thread(hid, callback, nullptr);

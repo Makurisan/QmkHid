@@ -56,17 +56,9 @@ enum ProductType {
     QMK
 };
 
-typedef struct _Support {
-    std::string name;
-    ProductType type;
-    USHORT vid;
-    USHORT pid;
-    USHORT sernbr;
-}DeviceSupport;
-
 typedef struct _HIDData {
     USHORT seqnr;
-    ProductType type;
+    uint8_t type;
     std::shared_ptr<HID> hid;
 	std::vector<uint8_t> readData;
 	std::vector<uint8_t> writeData;
@@ -250,7 +242,7 @@ bool OpenHidDevice(QMKHID& qmkData, const std::string& deviceName) {
 
     if (hidDataOpt.has_value()) {
         HIDData* hidData = *hidDataOpt;
-        if (!hid_connect(*hidData->hid, hidData->hid->info.VendorID, hidData->hid->info.ProductID, readCallback)) {
+        if (!hid_connect(*hidData->hid, std::string(""), readCallback)) {
             InvalidateRect(hChildWnd, NULL, TRUE);
             ShowNotification(*hidData, "FootSwitch Device Status:", (hidData->hid->port.value() + " not ready").c_str());
         }
@@ -266,13 +258,23 @@ bool OpenHidDevice(QMKHID& qmkData, const std::string& deviceName) {
         if (devicName.getVID().has_value() && devicName.getPID().has_value()) {
             auto deviceSupport = findDeviceSupport(qmkData, devicName.getVID().value(), devicName.getPID().value());
             if (deviceSupport.has_value()) {
-                qmkData.hidData.push_back({ 0, NoBoard, std::make_shared<HID>(HID{ INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }), {}, {}, 0, 0 });
+                qmkData.hidData.push_back({});
                 HIDData& adHidData = qmkData.hidData.back();
-                if (hid_connect(*adHidData.hid, devicName.getVID().value(), devicName.getPID().value(), readCallback)) {
+				adHidData.hid = std::make_shared<HID>(HID{
+					INVALID_HANDLE_VALUE,
+					0,
+					0,
+					{ devicName.getVID().value(), devicName.getPID().value(), 0 },
+					std::nullopt,
+					nullptr,
+					nullptr,
+					nullptr
+					});
+                if (hid_connect(*adHidData.hid, std::string(""), readCallback)) {
                     devicName.log();
                     adHidData.readData.resize(adHidData.hid->inEplength);
                     adHidData.writeData.resize(adHidData.hid->outEplength);
-                    adHidData.type = deviceSupport->type;
+                    adHidData.type = (uint8_t)deviceSupport->type;
                     anyDeviceOpened = true;
                 }
                 else {
@@ -286,11 +288,24 @@ bool OpenHidDevice(QMKHID& qmkData, const std::string& deviceName) {
 
 bool OpenAllSupportedHidDevices(QMKHID& qmkData) {
     bool anyDeviceOpened = false;
+
+    std::vector<DeviceSupport> toopen;
+	hid_open_list(toopen, qmkData.usbSuppDevs);
     // Search through supported devices and open if found
-    for (const auto& device : qmkData.usbSuppDevs) {
-        qmkData.hidData.push_back({ 0, NoBoard, std::make_shared<HID>(HID{ INVALID_HANDLE_VALUE, 0, 0, { sizeof(HIDD_ATTRIBUTES), 0, 0, 0 } }), {}, {}, 0, 0 });
+    for (const auto& device : toopen) {
+        qmkData.hidData.push_back({});
         HIDData& adHidData = qmkData.hidData.back();
-        if (!hid_connect(*adHidData.hid, device.vid, device.pid, readCallback)) {
+        adHidData.hid = std::make_shared<HID>(HID{
+            INVALID_HANDLE_VALUE,
+            0,
+            0,
+            { device.vid, device.pid, 0 },
+            std::nullopt,
+            nullptr,
+            nullptr,
+            nullptr
+            });
+        if (!hid_connect(*adHidData.hid, device.name, readCallback)) {
             InvalidateRect(hChildWnd, NULL, TRUE);
             ShowNotification(adHidData, "FootSwitch Device Status:", (device.name + " not ready").c_str());
             qmkData.hidData.pop_back();
@@ -304,8 +319,9 @@ bool OpenAllSupportedHidDevices(QMKHID& qmkData) {
         }
     }
     if (anyDeviceOpened) {
-        ShowNotification(qmkData.hidData[0], "FootSwitch Device Status:",
-            (qmkData.hidData[0].hid->port.value() + " ready").c_str());
+		auto hidData = qmkData.hidData[0];
+        ShowNotification(hidData, "FootSwitch Device Status:",
+            (hidData.hid->port.value() + " ready").c_str());
     }
     return anyDeviceOpened;
 }
@@ -574,7 +590,7 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 
     // Try to read from the device.
     if (data.size() == phidData->hid->inEplength) {
-        auto devSupport = findDeviceSupport(qmkData, hid.info.VendorID, hid.info.ProductID);
+        auto devSupport = findDeviceSupport(qmkData, hid.info.vid, hid.info.pid);
         // Check the USB device
         if (devSupport->type == StreamDeck) { // repid for btn pressed is data[0] == 1
             // Set to the StreamDeck HID input

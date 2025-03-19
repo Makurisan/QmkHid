@@ -19,6 +19,7 @@ public:
     std::optional<uint16_t> getPID() const { return pid; }
     std::optional<std::string> getMI() const { return mi; }
     std::optional<std::string> getPort() const { return port; }
+    std::string getDevName() const { return devname; }
 
     void log() const {
         if (vid.has_value()) _log("VID: {:04X}\n", vid.value());
@@ -29,16 +30,25 @@ public:
 	bool isQMKHidInterface(const HID& hid) const {
 		std::string c_mi = mi.value();
         if (c_mi.find("&MI_01") != std::string::npos &&
-            hid.info.ProductID == pid && hid.info.VendorID == vid)
+            hid.info.pid == pid && hid.info.vid == vid)
             return true;
         return false;
 	}
-
+    bool isQMKMI01HidInterface() const {
+        if (!mi.has_value())
+            return false;
+        std::string c_mi = mi.value();
+        if (c_mi.find("&MI_01") != std::string::npos)
+            return true;
+        return false;
+    }
 private:
     std::optional<uint16_t> vid;
     std::optional<uint16_t> pid;
     std::optional<std::string> mi;
     std::optional<std::string> port;
+    std::string devname;
+
 
     void _log(const std::string& format_str, auto&&... args) const {
         std::string formatted_str = std::vformat(format_str, std::make_format_args(args...));
@@ -46,7 +56,10 @@ private:
     }
 
     void parseDeviceName(const std::string& deviceName) {
-        std::vector<std::string> pieces = splitDeviceName(deviceName);
+        this->devname = deviceName;
+        std::transform(this->devname.begin(), this->devname.end(), this->devname.begin(), [](unsigned char c) { return std::toupper(c); });
+
+        std::vector<std::string> pieces = splitDeviceName(this->devname);
 
         for (size_t i = 0; i < pieces.size(); ++i) {
             const auto& part = pieces[i];
@@ -57,8 +70,9 @@ private:
             if (part.find("PID_") != std::string::npos) {
                 pid = std::stoi(part.substr(part.find("PID_") + 4), nullptr, 16);
             }
-            if (part.find("&MI_") != std::string::npos) {
-                mi = part.substr(part.find("&MI_"));
+            if (part.find("&MI_01") != std::string::npos) {
+                size_t pos = part.find("&MI_");
+                mi = part.substr(pos, 6); // Extract "&MI_01" or "&mi_01"
             }
             if (i == 2) {
                 port = part;

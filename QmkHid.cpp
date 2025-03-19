@@ -165,7 +165,6 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
     return hIcon;
 }
 
-
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
     nid.hIcon = qmkData.hidData.size()?
@@ -525,6 +524,7 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             }
             case ID_TRAY_EXIT:
                 Shell_NotifyIcon(NIM_DELETE, &nid);
+				DestroyWindow(hwnd);
                 PostQuitMessage(0);
                 break;
         }
@@ -557,8 +557,13 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 		ShowWindow(hwnd, SW_HIDE);
 		break;
     case WM_DESTROY:
+        qmk_log("WM_DESTROY: Window is being destroyed\n");
+        for (auto& hidData : qmkData.hidData) {
+            hid_close(*hidData.hid);
+        }
         Shell_NotifyIcon(NIM_DELETE, &nid);
         PostQuitMessage(0);
+        break;
         break;
     default:
         return DefWindowProc(hwnd, uMsg, wParam, lParam);

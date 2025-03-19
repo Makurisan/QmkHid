@@ -184,7 +184,8 @@ bool hid_open(HID &hid, const std::string& devName) {
 
 void hid_close(HID& hid) {
     hid_stop_read_thread(hid);
-    CloseHandle(hid.handle);
+    if(hid.handle != INVALID_HANDLE_VALUE)
+        CloseHandle(hid.handle);
 	hid.handle = INVALID_HANDLE_VALUE;
 }
 

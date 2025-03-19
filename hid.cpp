@@ -49,14 +49,14 @@ const std::string hid_error(HID& hid) {
 
 void hid_caps(HID& hid) {
     PHIDP_PREPARSED_DATA preparsedData;
-    HIDP_CAPS caps;
 
     if (HidD_GetPreparsedData(hid.handle, &preparsedData)) {
+        HIDP_CAPS caps;
         if (HidP_GetCaps(preparsedData, &caps) == HIDP_STATUS_SUCCESS) {
             hid.inEplength = static_cast<uint16_t>(caps.InputReportByteLength);
             hid.outEplength = static_cast<uint16_t>(caps.OutputReportByteLength);
            
-            hid_log("-----------------------------------------\n");
+            hid_log("------------------------------------------------\n");
             hid_log("VID: 0x{:04X}, PID: 0x{:04X}, SerialNr: 0x{:04X}\n", hid.info.vid, hid.info.pid, hid.info.sernr);
             hid_log("Usage Page: {}\n", caps.UsagePage);
             hid_log("Usage: {}\n", caps.Usage);
@@ -84,7 +84,7 @@ void hid_caps(HID& hid) {
     }
 }
 
-void hid_list(std::vector<DeviceNameParser>& _topen) {
+void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSupport>& supported) {
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
 
@@ -110,11 +110,29 @@ void hid_list(std::vector<DeviceNameParser>& _topen) {
             if (hidDevice != INVALID_HANDLE_VALUE) {
                 HIDD_ATTRIBUTES attributes;
                 if (HidD_GetAttributes(hidDevice, &attributes)) {
+                    hid_log("Added Devie: {}", detailData->DevicePath);
                     auto cHidNameParser = DeviceNameParser(detailData->DevicePath);
-                    if (cHidNameParser.isQMKMI01HidInterface()) {
-                        _systemHids.push_back(cHidNameParser);
-                        _topen.push_back(cHidNameParser);
-                        hid_log("Added Devie: {}", detailData->DevicePath);
+
+                    // Check if the vid and pid from cHidNameParser are in the supported list
+                    if (cHidNameParser.getVID().has_value() && cHidNameParser.getPID().has_value()) {
+
+                        auto it = std::find_if(supported.begin(), supported.end(), [&cHidNameParser](const DeviceSupport& supp) {
+                            return cHidNameParser.getVID().value() == supp.vid && cHidNameParser.getPID().value() == supp.pid;
+                            });
+
+                        if (it != supported.end()) {
+                            const DeviceSupport& fSupport = *it;
+                            if (cHidNameParser.isQMKMI01HidInterface() && fSupport.type == 2) {
+                                _systemHids.push_back(cHidNameParser);
+                                _topen.push_back(cHidNameParser);
+                            }
+                            if (fSupport.type == 1) {
+                                _systemHids.push_back(cHidNameParser);
+                                _topen.push_back(cHidNameParser);
+                            }
+                            else{
+                            }
+                        }
                     }
                 }
                 CloseHandle(hidDevice);
@@ -128,14 +146,7 @@ void hid_list(std::vector<DeviceNameParser>& _topen) {
 void hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
 	
     std::vector<DeviceNameParser> milist;
-    hid_list(milist);
-
-    milist.erase(std::remove_if(milist.begin(), milist.end(), [&supported](const DeviceNameParser& device) {
-        return std::none_of(supported.begin(), supported.end(), [&device](const DeviceSupport& supp) {
-            return device.getVID().has_value() && device.getPID().has_value() &&
-                device.getVID().value() == supp.vid && device.getPID().value() == supp.pid;
-            });
-        }), milist.end());
+    hid_list(milist, supported);
 
     // Assign milist to toopen
     toopen.clear();

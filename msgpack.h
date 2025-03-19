@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <vector>
 #include <string>
+#include <optional>
 
 #define MSGPACK_UNKNOWN         0   
 #define MSGPACK_CURRENT_KEYCODE 1
@@ -41,7 +42,7 @@ typedef struct {
     msgpack_pair_t pairs[MSGPACK_PAIR_ARRAY_SIZE];
 } msgpack_t;
 
-
+std::optional<uint8_t> msgpack_getValue(msgpack_t* km, uint8_t key);
 bool add_msgpack_pair(msgpack_t *msgpack, uint8_t key, uint8_t value);
 void init_msgpack(msgpack_t *msgpack);
 void send_msgpack(msgpack_t *msgpack);

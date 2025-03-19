@@ -131,14 +131,21 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     return true;
 }
 
+std::optional<uint8_t> msgpack_getValue(msgpack_t* km, uint8_t key) {
+    for (uint32_t i = 0; i < km->count; i++) {
+        if (km->pairs[i].key == key) {
+            return km->pairs[i].value;
+        }
+    }
+    return std::nullopt; // Return std::nullopt if key is not found
+}
+
 bool msgpack_log(msgpack_t* km) {
     std::string outmsg;
 
     for (uint32_t i = 0; i < km->count; i++) {
         outmsg += std::format("Key: {}, Value: {}\n", msgpack_keys[km->pairs[i].key].name, km->pairs[i].value);
     }
-
-
     OutputDebugString(outmsg.c_str());
 
     return true;

@@ -42,6 +42,9 @@
     <ClInclude Include="DeviceNameWindow.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="TimerHandler.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="QmkHid.cpp">

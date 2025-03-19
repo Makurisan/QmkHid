@@ -13,9 +13,12 @@
 #include <sstream>
 #include <ranges>
 #include <regex>
+#include <functional>
+
 #include "hid.h"
 #include "json.hpp"
 #include "msgpack.h"
+#include "timerhandler.h"
 
 #include "Resource.h"
 #include "DeviceNameWindow.h"
@@ -31,12 +34,10 @@ using namespace std::chrono;
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_APP_ICON 1001
 #define ID_TRAY_EXIT 1002
-#define ID_TRAY_WRITE 1003
+#define ID_TRAY_WRITE 10031
 
-#define IDT_TIMER1 1013
-#define IDT_LAYER_SWITCH 1014
+#define IDT_TIMER_INVALIDATE 1013
 #define IDT_HIDE_WINDOW 1015
-
 
 #define QMK_VID 0x35EE //0xFEED QMK default VID
 #define QMK_PID 0x1308 //0x1308 Your keyboard PID
@@ -70,6 +71,9 @@ typedef struct _QMKHID {
     std::vector<HIDData> hidData;
 	std::vector<DeviceSupport> usbSuppDevs;
     HICON iTrayIcon;
+    // preferences
+    std::atomic<USHORT> curLayer; // Make curLayer atomic
+    USHORT showTime; // time to show the client window
 }QMKHID;
 
 
@@ -86,10 +90,10 @@ NOTIFYICONDATA nid;
 HWND hTrayWnd;
 HWND hChildWnd;
 
-std::vector<std::pair<int, steady_clock::time_point>> layerSwitches;
 void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData);
 std::optional<DeviceSupport> findDeviceSupport(const QMKHID& qmkData, const uint16_t vid, const uint16_t pid);
 std::optional<HIDData*> findMatchingPortDevice(QMKHID& qmkData, const std::string& deviceName);
+void ProcessLayerSwitches();
 
 bool caseInsensitiveCompare(const std::string& str1, const std::string& str2) {
     return std::equal(str1.begin(), str1.end(), str2.begin(), str2.end(),
@@ -164,7 +168,8 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
-    nid.hIcon = CreateIconWithNumber(qmkData.hidData[0].curLayer, IsDarkTheme());
+    nid.hIcon = qmkData.hidData.size()?
+        CreateIconWithNumber(0, IsDarkTheme()): qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -175,9 +180,9 @@ void InitNotifyIconData() {
     nid.uID = ID_TRAY_APP_ICON;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_INFO;
     nid.uCallbackMessage = WM_TRAYICON;
-//nid.hIcon = CreateIconWithNumber(currentLayer, IsDarkTheme());
     strcpy_s(nid.szTip, "Foot Switch\nomrsh31h");
     qmkData.iTrayIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_QMKHID));
+    nid.hIcon = qmkData.iTrayIcon;
 }
 
 void ShowNotification(const HIDData& hidData,const char* title, const char* message) {
@@ -187,39 +192,30 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
     nid.dwInfoFlags = NIIF_NONE; // No sound
     // Load the standard application icon
     qmkData.iTrayIcon = hidData.hid->handle != INVALID_HANDLE_VALUE?
-        CreateIconWithNumber(hidData.curLayer, IsDarkTheme()): qmkData.iTrayIcon;
+        CreateIconWithNumber(qmkData.curLayer.load(), IsDarkTheme()): qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
-}
-
-void ResetLayerSwitchTimer() {
-    // Kill the existing timer if it exists
-    KillTimer(hTrayWnd, IDT_LAYER_SWITCH);
-    // Set a new timer for 200 ms
-    SetTimer(hTrayWnd, IDT_LAYER_SWITCH, 400, NULL);
 }
 
 void ShowChildWindow() {
     ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
     UpdateWindow(hChildWnd);
-    // Set a timer to hide the window after 2 seconds
-    SetTimer(hTrayWnd, IDT_HIDE_WINDOW, 2000, NULL);
-}
-
-void HideChildWindow() {
-    ShowWindow(hChildWnd, SW_HIDE);
+    // Set a timer to hide the window
+    SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
 }
 
 void ProcessLayerSwitches() {
-    if (!layerSwitches.empty()) {
-        std::lock_guard<std::mutex> lock(mtx); // Lock the mutex to ensure thread-safe
-        auto lastEntry = layerSwitches.back();
-        qmkData.hidData[0].curLayer = lastEntry.first;
-        layerSwitches.clear();
-        InvalidateRect(hChildWnd, NULL, TRUE);
-        ShowChildWindow();
-        UpdateTrayIcon();
-    }
+    InvalidateRect(hChildWnd, NULL, TRUE);
+    ShowChildWindow();
+    UpdateTrayIcon();
 }
+
+// Timer callback function
+// This function is started inside readCallback to leave the function
+void TimerLayerSwitchCallback(int curlayer, const std::string& type) {
+    qmk_log("TimerLayerSwitchCallback: {} callback function called!\n", curlayer);
+    ProcessLayerSwitches();
+}
+
 
 void RegisterDeviceNotification(HWND hwnd) {
     DEV_BROADCAST_DEVICEINTERFACE NotificationFilter;
@@ -246,7 +242,9 @@ bool OpenHidDevice(QMKHID& qmkData, const std::string& deviceName) {
     // Reopen if hidData is not null
     auto hidDataOpt = findMatchingPortDevice(qmkData, deviceName);
 
-    if (hidDataOpt.has_value()) {
+    // has_value should not coming true, 
+    // at removal the device are removed from qmkData.hidData
+    if (hidDataOpt.has_value()) { 
         HIDData* hidData = *hidDataOpt;
         if (!hid_connect(*hidData->hid, deviceName, readCallback)) {
             InvalidateRect(hChildWnd, NULL, TRUE);
@@ -372,7 +370,7 @@ LRESULT CALLBACK ChildWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         SetBkMode(hdcMem, TRANSPARENT);
 
         // Specify the text to draw
-        std::string text = "FootSwitch\nLayer: " + std::to_string(qmkData.hidData[0].curLayer);
+        std::string text = "FootSwitch\nLayer: " + std::to_string(qmkData.curLayer);
 
         // Calculate the text rectangle
         RECT textRect = rect;
@@ -452,8 +450,14 @@ std::optional<HIDData*> findMatchingPortDevice(QMKHID& qmkData, const std::strin
     return std::nullopt;
 }
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+
+    case WM_CREATE:
+        // Perform initialization tasks here
+        qmk_log("WM_CREATE: Window is being created\n");
+        break;
+
     case WM_DEVICECHANGE:
         if (wParam == DBT_DEVICEREMOVECOMPLETE) {
             PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
@@ -470,6 +474,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         hidDataRef.curLayer = 0;
                         ShowNotification(hidDataRef, "FootSwitch Device Status:", "Device unplugged");
                     }
+                    // remove the hidData from qmkData.hidData
+                    qmkData.hidData.erase(std::remove_if(qmkData.hidData.begin(), qmkData.hidData.end(),
+                        [&hidDataRef](const HIDData& data) {
+                            return data.hid->handle == hidDataRef.hid->handle;
+                        }), qmkData.hidData.end());
+
                 }
             }
         }
@@ -527,16 +537,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         break;
     case WM_TIMER:
-        if (wParam == IDT_TIMER1) {
+        if (wParam == IDT_TIMER_INVALIDATE) {
             // Redraw the child window periodically
+            KillTimer(hwnd, IDT_TIMER_INVALIDATE);
             InvalidateRect(hChildWnd, NULL, TRUE);
         }
-        else if (wParam == IDT_LAYER_SWITCH) {
-            ProcessLayerSwitches();
-            KillTimer(hwnd, IDT_LAYER_SWITCH); // Stop the timer after processing
-        }
         else if (wParam == IDT_HIDE_WINDOW) {
-            HideChildWindow();
+            KillTimer(hwnd, IDT_HIDE_WINDOW); 
+            ShowWindow(hChildWnd, SW_HIDE);
         }
         break;
     case WM_QUERYENDSESSION:
@@ -616,12 +624,21 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
                 try {
                     make_msgpack(&km, phidData->writeData);
                     msgpack_log(&km);
+
+                    auto curLayer = msgpack_getValue(&km, MSGPACK_CURRENT_LAYER);
+                    if (curLayer.has_value()) {
+                        //std::lock_guard<std::mutex> lock(mtx);
+						qmkData.curLayer = curLayer.value();
+                        std::jthread timerThread2(WaitableTimerThread<decltype(TimerLayerSwitchCallback),
+                            int, std::string>, TimerLayerSwitchCallback, curLayer.value(), "QMK");
+                    }
                     /*hid_write(*phidData->hid, phidData->writeData);*/
                 }
                 catch (json::parse_error& e) {
                     ShowNotification(*phidData, "Device Status", "Wrong data from the USB Device");
                 }
             }
+
         }
     }
     else if (data.size() == 0) {
@@ -644,7 +661,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Create a window class
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WindowProc, 0L, 0L, hInstance, NULL, NULL, NULL, NULL, "HIDTest", NULL };
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, TrayWindowProc, 0L, 0L, hInstance, NULL, NULL, NULL, NULL, "QMkTrayIconWnd", NULL };
     RegisterClassEx(&wc);
     hTrayWnd = CreateWindow(wc.lpszClassName, "OMRS31H Foot Switch", WS_OVERLAPPEDWINDOW, 100, 100, 300, 300, NULL, NULL, wc.hInstance, NULL);
 
@@ -659,10 +676,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     CreateChildWindow();
 
     // Set a timer to redraw the child window periodically
-    SetTimer(hTrayWnd, IDT_TIMER1, 1000, NULL); // 1000 ms = 1 second
+    SetTimer(hTrayWnd, IDT_TIMER_INVALIDATE, 1000, NULL); // 1000 ms = 1 second
 
     // Try to open the HID device initially
     OpenAllSupportedHidDevices(qmkData);
+
+// preferences
+	qmkData.showTime = 2000;
+    
+	// Layer switch timer, depending on preferences
+    std::jthread timerThread2(WaitableTimerThread<decltype(TimerLayerSwitchCallback), 
+        int, std::string>, TimerLayerSwitchCallback, 0, "QMK");
 
     // Message loop
     MSG msg;
@@ -676,7 +700,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 break;
             }
         }
-        Sleep(100); // Sleep for 100 ms
+        Sleep(10); // Sleep for 100 ms
     }
 
     Shell_NotifyIcon(NIM_DELETE, &nid);

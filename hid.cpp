@@ -75,12 +75,12 @@ void hid_caps(HID& hid) {
             hid_log("Number of Feature Data Indices: {}\n", caps.NumberFeatureDataIndices);
         }
         else {
-            hid_log("HidP_GetCaps failed with error: {}\n", GetLastErrorAsString());
+            hid_log("HidP_GetCaps failed with error: {}\n", hid_error(hid));
         }
         HidD_FreePreparsedData(preparsedData);
     }
     else {
-        hid_log("HidD_GetPreparsedData failed with error: {}\n", GetLastErrorAsString());
+        hid_log("HidD_GetPreparsedData failed with error: {}\n", hid_error(hid));
     }
 }
 
@@ -110,7 +110,6 @@ void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSup
             if (hidDevice != INVALID_HANDLE_VALUE) {
                 HIDD_ATTRIBUTES attributes;
                 if (HidD_GetAttributes(hidDevice, &attributes)) {
-                    hid_log("Added Devie: {}", detailData->DevicePath);
                     auto cHidNameParser = DeviceNameParser(detailData->DevicePath);
 
                     // Check if the vid and pid from cHidNameParser are in the supported list
@@ -121,6 +120,7 @@ void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSup
                             });
 
                         if (it != supported.end()) {
+                            hid_log("Relevant Device: {} \n", detailData->DevicePath);
                             const DeviceSupport& fSupport = *it;
                             if (cHidNameParser.getMI().has_value() && cHidNameParser.getMI() == fSupport.iface) {
                                 _systemHids.push_back(cHidNameParser);
@@ -232,7 +232,7 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
         }
 }
     else {
-        hid_log("ReadFile failed with error:{}\n", GetLastErrorAsString());
+        hid_log("ReadFile failed with error:{}\n", hid_error(hid));
     }
 
     CloseHandle(overlapped.hEvent);

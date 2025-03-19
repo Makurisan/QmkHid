@@ -30,7 +30,7 @@ typedef struct _HID {
 } HID;
 
 typedef struct _Support {
-    std::string name;
+    std::string name; // display device name
     uint8_t type;
     USHORT vid;
     USHORT pid;

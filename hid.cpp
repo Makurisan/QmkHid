@@ -122,15 +122,13 @@ void hid_list(std::vector<DeviceNameParser>& _topen, const std::vector<DeviceSup
 
                         if (it != supported.end()) {
                             const DeviceSupport& fSupport = *it;
-                            if (cHidNameParser.isQMKMI01HidInterface() && fSupport.type == 2) {
+                            if (cHidNameParser.getMI().has_value() && cHidNameParser.getMI() == fSupport.iface) {
                                 _systemHids.push_back(cHidNameParser);
                                 _topen.push_back(cHidNameParser);
                             }
-                            if (fSupport.type == 1) {
+                            if (!cHidNameParser.getMI().has_value() && fSupport.iface == "") {
                                 _systemHids.push_back(cHidNameParser);
                                 _topen.push_back(cHidNameParser);
-                            }
-                            else{
                             }
                         }
                     }

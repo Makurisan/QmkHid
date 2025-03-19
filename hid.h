@@ -35,6 +35,7 @@ typedef struct _Support {
     USHORT vid;
     USHORT pid;
     USHORT sernbr;
+	std::string iface; // MI_01, or empty
 }DeviceSupport;
 
 

@@ -76,8 +76,8 @@ typedef struct _QMKHID {
 QMKHID qmkData = {
 	.hidData = {},
     .usbSuppDevs = {
-        {"QMK", QMK, QMK_VID, QMK_PID, 0}, // DeviceSupport instances
-        {"StreamDeck", StreamDeck, STMDECK_VID, STMDECK_PID, 0}, // DeviceSupport instances
+        {"QMK", QMK, QMK_VID, QMK_PID, 0, "&MI_01"}, // DeviceSupport instances
+        {"StreamDeck", StreamDeck, STMDECK_VID, STMDECK_PID, 0, ""}, // DeviceSupport instances
     },
     .iTrayIcon = nullptr,
 };

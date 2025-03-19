@@ -124,8 +124,8 @@ bool sqlite_add_update_devicesupport(sqlite3* db, const std::vector<DeviceSuppor
 
     const char* updateSQL = R"(
         UPDATE DeviceSupport
-        SET active = ?, name = ?, type = ?, vid = ?, pid = ?, sernbr = ?, iface = ?, serial_number = ?, manufactor = ?, product = ?, dev = ?
-        WHERE seqnr = ?;
+        SET active = ?, name = ?, type = ?, vid = ?, pid = ?, sernbr = ?, iface = ?, serial_number = ?, manufactor = ?, product = ?, dev = ?, timestamp = CURRENT_TIMESTAMP
+        WHERE seqnr = ? AND timestamp != ?;
     )";
 
     sqlite3_stmt* insertStmt;
@@ -192,6 +192,7 @@ bool sqlite_add_update_devicesupport(sqlite3* db, const std::vector<DeviceSuppor
             sqlite3_bind_text(updateStmt, 10, device.product.c_str(), -1, SQLITE_STATIC);
             sqlite3_bind_text(updateStmt, 11, device.dev.c_str(), -1, SQLITE_STATIC);
             sqlite3_bind_int(updateStmt, 12, device.seqnr);
+            sqlite3_bind_text(updateStmt, 13, device.timestamp.c_str(), -1, SQLITE_STATIC);
 
             rc = sqlite3_step(updateStmt);
             if (rc != SQLITE_DONE) {
@@ -224,8 +225,8 @@ bool sqlite_add_update_devicesupport(sqlite3* db, const std::vector<DeviceSuppor
 bool sqlite_update_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& devices) {
     const char* updateSQL = R"(
         UPDATE DeviceSupport
-        SET active = ?, name = ?, type = ?, vid = ?, pid = ?, sernbr = ?, iface = ?, serial_number = ?, manufactor = ?, product = ?, dev = ?
-        WHERE seqnr = ?;
+        SET active = ?, name = ?, type = ?, vid = ?, pid = ?, sernbr = ?, iface = ?, serial_number = ?, manufactor = ?, product = ?, dev = ?, timestamp = CURRENT_TIMESTAMP
+        WHERE seqnr = ? AND timestamp != ?;
     )";
 
     sqlite3_stmt* stmt;
@@ -248,6 +249,7 @@ bool sqlite_update_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& 
         sqlite3_bind_text(stmt, 10, device.product.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 11, device.dev.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_int(stmt, 12, device.seqnr);
+        sqlite3_bind_text(stmt, 13, device.timestamp.c_str(), -1, SQLITE_STATIC);
 
         rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE) {
@@ -266,7 +268,7 @@ bool sqlite_update_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& 
 bool sqlite_get_devicesupport(sqlite3* db, std::vector<DeviceSupport>& devices) {
     const char* selectSQL =
         "SELECT seqnr, active, name, type, vid, pid, sernbr, iface, serial_number, "
-        "manufactor, product, dev FROM DeviceSupport WHERE active = 1;";
+        "manufactor, product, dev, timestamp FROM DeviceSupport WHERE active = 1;";
 
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db, selectSQL, -1, &stmt, nullptr);
@@ -289,6 +291,7 @@ bool sqlite_get_devicesupport(sqlite3* db, std::vector<DeviceSupport>& devices) 
         device.manufactor = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
         device.product = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
         device.dev = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+        device.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
 
         devices.push_back(device);
     }
@@ -344,9 +347,10 @@ bool sqlite_store_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& d
 }
 
 // Function to create the DeviceSupport table
-std::optional<CreateTableResult> sqlite_create_devicesupport(sqlite3* db) {
+bool sqlite_create_devicesupport(sqlite3* db) {
     if (sqlite_tableExists(db, "DeviceSupport")) {
-        return CreateTableResult{ true, "Table already exists" };
+        sqlite_log("Table already exists");
+        return true;
     }
     const char* createTableSQL = R"(
         CREATE TABLE IF NOT EXISTS DeviceSupport (
@@ -361,7 +365,8 @@ std::optional<CreateTableResult> sqlite_create_devicesupport(sqlite3* db) {
                 serial_number TEXT,
                 manufactor TEXT,
                 product TEXT,
-                dev TEXT
+                dev TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     )";
 
@@ -371,25 +376,24 @@ std::optional<CreateTableResult> sqlite_create_devicesupport(sqlite3* db) {
         std::string errorMessage = "SQL error: " + std::string(errMsg);
         sqlite_log(errorMessage);
         sqlite3_free(errMsg);
-        return CreateTableResult{ false, errorMessage };
+        return false;
     }
-    return CreateTableResult{ true, "Table created successfully" };
+    return true;
 }
 
-
 // Function to open the database and ensure the DeviceSupport table exists
-std::optional<CreateTableResult> sqlite_database_open(std::shared_ptr<sqlite3>& db) {
+bool sqlite_database_open(std::shared_ptr<sqlite3>& db) {
     if (_db == nullptr) {
         auto localAppDataOpt = GetLocalAppDataFolder();
         if (!localAppDataOpt) {
             sqlite_log("Failed to get local app data folder");
-            return std::nullopt;
+            return false;
         }
         std::string dbPath = *localAppDataOpt + "\\QMK\\HID Tray\\HidTray.db";
         int rc = sqlite3_open(dbPath.c_str(), &_db);
         if (rc != SQLITE_OK) {
             sqlite_log("Failed to open database");
-            return std::nullopt;
+            return false;
         }
     }
 
@@ -398,11 +402,10 @@ std::optional<CreateTableResult> sqlite_database_open(std::shared_ptr<sqlite3>& 
         });
 
     if (!sqlite_tableExists(db.get(), "DeviceSupport")) {
-        auto createTableResult = sqlite_create_devicesupport(db.get());
-        if (!createTableResult.has_value() || !createTableResult->success) {
-            sqlite_log("Failed to create DeviceSupport table: {}", createTableResult->message);
-            return createTableResult;
+        if (!sqlite_create_devicesupport(db.get())) {
+            sqlite_log("Failed to create DeviceSupport table");
+            return false;
         }
     }
-    return CreateTableResult{ true, "Database opened and DeviceSupport table ensured" };
+    return true;
 }

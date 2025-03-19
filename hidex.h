@@ -42,6 +42,7 @@ typedef struct _Support {
     std::string manufactor;
     std::string product;
     std::string dev;
+    std::string timestamp; // timestamp in string format
 }DeviceSupport;
 
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);

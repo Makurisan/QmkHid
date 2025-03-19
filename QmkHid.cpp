@@ -695,11 +695,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         int, std::string>, TimerLayerSwitchCallback, 0, "QMK");
 
     auto devCount = 0;;
-    auto dbResult = sqlite_database_open(qmkData.sqLite);
-	if (dbResult.has_value() && dbResult->success) {
-        qmk_log("{}\n", dbResult->message);
+    auto dbreturn = sqlite_database_open(qmkData.sqLite);
+	if (dbreturn) {
         devCount = sqlite_tableCount(qmkData.sqLite.get(), "DeviceSupport");
-
     }
     else {
         qmk_log("Failed to get database connection");

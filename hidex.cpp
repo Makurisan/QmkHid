@@ -169,12 +169,10 @@ void hid_list(std::vector<DeviceSupport>& system, const std::vector<DeviceSuppor
     hid_exit();
 }
 
-void hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
-	
+bool hid_open_list(std::vector<DeviceSupport>& toopen, const std::vector<DeviceSupport>& supported) {
     toopen.clear();
-    std::vector<DeviceSupport> SystemOpen;
     hid_list(toopen, supported);
-
+    return toopen.size() != 0;
 }
 
 bool hid_open(HID &hid, const std::string& devName) {

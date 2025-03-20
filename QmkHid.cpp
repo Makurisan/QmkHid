@@ -39,7 +39,6 @@ using namespace std::chrono;
 #define ID_TRAY_EXIT 1002
 #define ID_TRAY_WRITE 10031
 
-#define IDT_TIMER_INVALIDATE 1013
 #define IDT_HIDE_WINDOW 1015
 
 #define QMK_VID 0x35EE //0xFEED QMK default VID
@@ -85,8 +84,8 @@ typedef struct _QMKHID {
     std::vector<DeviceSupport> dbSuppDevs; // active/inactive devices on the usb bus
     std::shared_ptr<sqlite3> sqLite;
     HICON iTrayIcon;
-	bool winTimerActive;
-    // preferences
+    std::atomic<bool> winTimerActive;    
+ // preferences
     std::atomic<USHORT> curLayer; // Make curLayer atomic
     USHORT showTime; // time to show the client window
     std::string windowPos; // serialized RECT, status window position
@@ -220,23 +219,18 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
-// Timer callback function
-// This function is started inside readCallback to leave the function
-void TimerLayerSwitchCallback(int curlayer, const std::string& type) {
-
-    qmk_log("TimerLayerSwitchCallback: curlayer: {} type:{}  \n", curlayer, type);
-  
-	// Check if the timer is already running
-	if (qmkData.winTimerActive) {
-		qmk_log("Timer is already running\n");
-		return;
+// Thread callback to show the layer switch window and start to hide it
+// This function is started inside readCallback
+void LayerWindowSwitchCallback(int curlayer, const std::string& type) {
+	// Check if the child window is already visible
+	if (IsWindowVisible(hChildWnd)) {
+		qmk_log("Child window is already visible\n");
 	}
+	// Kill running timer
+	KillTimer(hChildWnd, IDT_HIDE_WINDOW);
 
-	qmkData.winTimerActive = true;
-    
     InvalidateRect(hChildWnd, NULL, TRUE);
     ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
-    //UpdateWindow(hChildWnd);
     // Set a timer to hide the window
     SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
     UpdateTrayIcon();
@@ -552,15 +546,9 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
         break;
     case WM_TIMER:
-        if (wParam == IDT_TIMER_INVALIDATE) {
-            // Redraw the child window periodically
-            KillTimer(hwnd, IDT_TIMER_INVALIDATE);
-            InvalidateRect(hChildWnd, NULL, TRUE);
-        }
-        else if (wParam == IDT_HIDE_WINDOW) {
-            KillTimer(hwnd, IDT_HIDE_WINDOW); 
+        if (wParam == IDT_HIDE_WINDOW) {
+            KillTimer(hwnd, 1); 
             ShowWindow(hChildWnd, SW_HIDE);
-            qmkData.winTimerActive = false;
         }
         break;
     case WM_QUERYENDSESSION:
@@ -635,8 +623,8 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 					qmkData.curLayer = curLayer.value();
 
 					// todo check the preference for showing the layer switch
-					std::jthread timerThread2(WaitableTimerThread<decltype(TimerLayerSwitchCallback),
-						int, std::string>, TimerLayerSwitchCallback, curLayer.value(), "QMK");
+					std::jthread timerThread2(WaitableTimerThread<decltype(LayerWindowSwitchCallback),
+						int, std::string>, LayerWindowSwitchCallback, curLayer.value(), "QMK");
 				}
 			}
 			else {
@@ -679,10 +667,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Create the child window
     CreateChildWindow();
 
-    // Set a timer to redraw the child window periodically
-    SetTimer(hTrayWnd, IDT_TIMER_INVALIDATE, 1000, NULL); // 1000 ms = 1 second
-
-
     auto opened = false;
 
     auto devCount = 0;;
@@ -709,13 +693,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     
 	// preferences
 	qmkData.showTime = 2000;
-
-    // Layer switch timer, depending on preferences
-    //if(opened) {
-    //    std::jthread timerThread2(WaitableTimerThread<decltype(TimerLayerSwitchCallback),
-    //        int, std::string>, TimerLayerSwitchCallback, 0, "QMK");
-    //}
-
 
     // Message loop
     MSG msg;

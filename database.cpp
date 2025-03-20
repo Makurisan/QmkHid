@@ -69,7 +69,6 @@ int sqlite_tableCount(sqlite3* db, const std::string& tableName) {
     return count;
 }
 
-
 bool sqlite_tableExists(sqlite3* db, const std::string& tableName) {
     std::string sql = "SELECT name FROM sqlite_master WHERE type='table' AND name='" + tableName + "';";
     sqlite3_stmt* stmt;
@@ -268,7 +267,7 @@ bool sqlite_update_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& 
 bool sqlite_get_devicesupport(sqlite3* db, std::vector<DeviceSupport>& devices) {
     const char* selectSQL =
         "SELECT seqnr, active, name, type, vid, pid, sernbr, iface, serial_number, "
-        "manufactor, product, dev, timestamp FROM DeviceSupport WHERE active = 1;";
+        "manufactor, product, dev, timestamp FROM DeviceSupport ;"; // WHERE active = 1
 
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db, selectSQL, -1, &stmt, nullptr);

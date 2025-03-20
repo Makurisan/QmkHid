@@ -36,13 +36,13 @@ typedef struct _Support {
 	uint8_t type; // 0 = NoBoard, 1 = StreamDeck, 2 = QMK
 	USHORT vid; // vendor id
 	USHORT pid; // product id
-	USHORT sernbr; // serial number
+	USHORT sernbr; // serial number QMK: "device_version": "1.4.3"
     std::string iface; // MI_01, or empty
-	std::string serial_number; // serial number e.g. 
+	std::string serial_number; // serial number e.g. DE631822C78142210000000000000000
     std::string manufactor;
     std::string product;
-    std::string dev;
-    std::string timestamp; // timestamp in string format
+    std::string dev; // e.g. \\?\HID#VID_35EE&PID_1308&MI_01#a&55b843f&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+    std::string timestamp; // format e.g. "2025-03-19 23:09:13"
 }DeviceSupport;
 
 typedef void (*HIDReadCallback)(HID& hid, const std::vector<BYTE>& data, void* userData);

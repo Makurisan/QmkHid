@@ -318,7 +318,6 @@ bool OpenHidDevices(QMKHID& qmkData, std::vector<DeviceSupport>& devsupport) {
                 std::nullopt,
                 nullptr,
                 nullptr,
-                nullptr
                 });
             if (!hid_connect(*adHidData.hid, device.dev, readCallback)) {
                 qmkData.hidData.pop_back();
@@ -476,8 +475,6 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
     switch (uMsg) {
 
     case WM_CREATE:
-        // Perform initialization tasks here
-        qmk_log("WM_CREATE: Window is being created\n");
         break;
 
     case WM_DEVICECHANGE:

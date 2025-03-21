@@ -257,7 +257,6 @@ bool hid_read(HID& hid, std::vector<uint8_t>& data) {
 }
 
 void hid_stop_read_thread(HID& hid) {
-    *hid.stopFlag = true; // Set the stop flag
     if (hid.stopReadEvent && *hid.stopReadEvent) {
         SetEvent(*hid.stopReadEvent); // Signal the stop event
     }
@@ -282,7 +281,6 @@ static void hid_read_func_thread(HID& hid, HIDReadCallback callback, void* userD
 
 void hid_read_thread(HID& hid, HIDReadCallback callback, void* userData) {
     hid.stopReadEvent = std::make_shared<HANDLE>(CreateEvent(NULL, TRUE, FALSE, NULL));
-    hid.stopFlag = std::make_shared<std::atomic<bool>>(false); // Reset the stop flag
 
     hid.readThread = std::make_shared<std::jthread>(hid_read_func_thread, std::ref(hid), callback, userData);
 }

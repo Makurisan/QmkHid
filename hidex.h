@@ -24,7 +24,6 @@ typedef struct _HID {
     uint16_t outEplength;
     HIDATTRIBUTE info;
     std::optional<std::string> port;
-    std::shared_ptr<std::atomic<bool>> stopFlag;
     std::shared_ptr<std::jthread> readThread;
     std::shared_ptr<HANDLE> stopReadEvent;
 } HID;

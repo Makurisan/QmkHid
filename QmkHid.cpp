@@ -222,7 +222,7 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
 
 // Thread callback to show the layer switch window and start to hide it
 // This function is started inside readCallback
-void LayerWindowSwitchCallback(int curlayer, const std::string& type) {
+void LayerWindowSwitchCallback(std::string devname, uint8_t curlayer,  uint8_t msg) {
 	// Check if the child window is already visible
 	if (IsWindowVisible(hChildWnd)) {
 		qmk_log("Child window is already visible\n");
@@ -230,10 +230,13 @@ void LayerWindowSwitchCallback(int curlayer, const std::string& type) {
 	// Kill running timer
 	KillTimer(hChildWnd, IDT_HIDE_WINDOW);
 
-    ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
-    InvalidateRect(hChildWnd, NULL, TRUE);
-   // Set a timer to hide the window
-    SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
+    // show the layer switch window only if the keyboard changed the layer
+    if (msg != MSGPACK_CURRENT_LAYER) {
+        ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
+        InvalidateRect(hChildWnd, NULL, TRUE);
+       // Set a timer to hide the window
+        SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
+    }
     UpdateTrayIcon();
 }
 
@@ -529,11 +532,12 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             case ID_TRAY_WRITE: {
                 msgpack_t msgpack = {0};
                 init_msgpack(&msgpack);
-                add_msgpack_add(&msgpack, MSGPACK_CURRENT_GETLAYER, -77);
+                // wen want the current layer back from the keyboard
+                add_msgpack_add(&msgpack, MSGPACK_CURRENT_LAYER, 0);
 				make_msgpack(&msgpack, qmkData.hidData[0].writeData);
-                read_msgpack(&msgpack, qmkData.hidData[0].writeData);
+                //read_msgpack(&msgpack, qmkData.hidData[0].writeData);
                 if (hid_write(*qmkData.hidData[0].hid, qmkData.hidData[0].writeData)) {
-                    ShowNotification(qmkData.hidData[0], "HID Write", "Data written successfully");
+                   // ShowNotification(qmkData.hidData[0], "HID Write", "Data written successfully");
                 }
                 else {
                     ShowNotification(qmkData.hidData[0], "HID Write", "Failed to write data");
@@ -619,13 +623,18 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 			if (read_msgpack(&km, hidData.readData)) {
 				msgpack_log(&km);
 
-				auto curLayer = msgpack_getValue(&km, MSGPACK_CURRENT_LAYER);
-				if (curLayer.has_value()) {
-					qmkData.curLayer = curLayer.value();
+                // show the 
+				if (msgpack_haskey(&km, MSGPACK_CHANGED_LAYER) || msgpack_haskey(&km, MSGPACK_CURRENT_LAYER)) {
+                    
+					uint8_t msg = msgpack_haskey(&km, MSGPACK_CHANGED_LAYER)? 
+                                MSGPACK_CHANGED_LAYER : MSGPACK_CURRENT_LAYER;
+                    auto curLayer = msgpack_getValue(&km, msg);
 
+                    hidData.curLayer = qmkData.curLayer = (uint8_t)curLayer.value();
+                    
 					// todo check the preference for showing the layer switch
 					std::jthread timerThread2(CallbackThread<decltype(LayerWindowSwitchCallback),
-						int, std::string>, LayerWindowSwitchCallback, curLayer.value(), "QMK");
+                        std::string, uint8_t, uint8_t>, LayerWindowSwitchCallback, hidData.hid->port.value(), hidData.curLayer, msg);
 				}
 			}
 			else {

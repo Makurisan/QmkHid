@@ -10,9 +10,11 @@ typedef struct {
 } msgpack_key_t;
 
 static msgpack_key_t msgpack_keys[] = {
-    {MSGPACK_UNKNOWN, "unknown"},
-    {MSGPACK_CURRENT_KEYCODE, "keycode"},
-    {MSGPACK_CURRENT_LAYER, "layer"},
+	{MSGPACK_UNKNOWN, "unknown"},
+	{MSGPACK_CURRENT_KEYCODE, "keycode"},
+	{MSGPACK_CURRENT_LAYER, "currentlayer"},
+	{MSGPACK_CHANGED_LAYER, "changedlayer"},
+    {MSGPACK_SET_LAYER, "setlayer"},
     {MSGPACK_CURRENT_LEDSTATE, "ledstate"}
 };
 
@@ -105,8 +107,18 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     return true;
 }
 
-std::optional<uint8_t> msgpack_getValue(msgpack_t* km, uint8_t key) {
-    for (uint32_t i = 0; i < km->count; i++) {
+bool msgpack_haskey(msgpack_t* km, uint8_t key) {
+	for (uint8_t i = 0; i < km->count; i++) {
+		if (km->pairs[i].key == key) {
+			return true;
+		}
+	}
+	return false;
+}
+
+
+std::optional<uint16_t> msgpack_getValue(msgpack_t* km, uint8_t key) {
+    for (uint8_t i = 0; i < km->count; i++) {
         if (km->pairs[i].key == key) {
             return km->pairs[i].value;
         }

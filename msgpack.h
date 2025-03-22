@@ -23,9 +23,10 @@
 
 #define MSGPACK_UNKNOWN             0
 #define MSGPACK_CURRENT_KEYCODE     1
-#define MSGPACK_CURRENT_LAYER       2
-#define MSGPACK_CURRENT_GETLAYER    3
-#define MSGPACK_CURRENT_LEDSTATE    4
+#define MSGPACK_CURRENT_LAYER       2 // current layer on keyboard
+#define MSGPACK_CHANGED_LAYER       3 // keyboard has changed the layer
+#define MSGPACK_SET_LAYER           4 // want to set the layer
+#define MSGPACK_CURRENT_LEDSTATE    5
 
 
 #define MSGPACK_PAIR_ARRAY_SIZE 10
@@ -43,7 +44,8 @@ typedef struct {
     msgpack_pair_t pairs[MSGPACK_PAIR_ARRAY_SIZE];
 } msgpack_t;
 
-std::optional<uint8_t> msgpack_getValue(msgpack_t* km, uint8_t key);
+bool msgpack_haskey(msgpack_t* km, uint8_t key);
+std::optional<uint16_t> msgpack_getValue(msgpack_t* km, uint8_t key);
 bool add_msgpack_add(msgpack_t *msgpack, uint8_t key, uint16_t value);
 void init_msgpack(msgpack_t *msgpack);
 bool read_msgpack(msgpack_t* km, std::vector<uint8_t>& data);

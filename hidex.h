@@ -12,9 +12,9 @@
 #include <thread>
 
 typedef struct _HIDATTRIBUTE {
-    USHORT vid;
-    USHORT pid;
-    USHORT sernr;
+    uint16_t vid;
+    uint16_t pid;
+    uint16_t sernr;
     std::string devname;
 } HIDATTRIBUTE;
 
@@ -33,9 +33,9 @@ typedef struct _Support {
 	bool active; // 1 = active, 0 = inactive
 	std::string name; // display device name, e.g . QMK, StreamDeck
 	uint8_t type; // 0 = NoBoard, 1 = StreamDeck, 2 = QMK
-	USHORT vid; // vendor id
-	USHORT pid; // product id
-	USHORT sernbr; // serial number QMK: "device_version": "1.4.3"
+    uint16_t vid; // vendor id
+    uint16_t pid; // product id
+    uint16_t sernbr; // serial number QMK: "device_version": "1.4.3"
     std::string iface; // MI_01, or empty
 	std::string serial_number; // serial number e.g. DE631822C78142210000000000000000
     std::string manufactor;

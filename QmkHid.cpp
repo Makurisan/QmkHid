@@ -21,7 +21,8 @@
 #include "sqlite/sqlite3.h"
 #include "json.hpp"
 #include "msgpack.h"
-#include "timerhandler.h"
+
+#include "CallbackHandler.h"
 
 #include "qmkhid.h"
 #include "Resource.h"
@@ -139,7 +140,7 @@ bool IsDarkTheme() {
         }
         RegCloseKey(hKey);
     }
-
+ 
     // Default to light theme if the registry key is not found
     return false;
 }
@@ -269,10 +270,10 @@ bool OpenArrivedHidDevice(QMKHID& qmkData, const std::string& dev) {
     }
     else {
 		qmk_log("Device not found in dbSuppDevs: {}\n", dev);       
-		// todo check if the device is in the usbSuppDevs
+		// be careful with the device name, it can be a bluetooth device
 		auto cdevParser = DeviceNameParser(dev);
 		auto it = std::ranges::find_if(qmkData.usbSuppDevs, [&cdevParser](const DeviceSupport& device) {
-			return cdevParser.getVID().value() == device.vid && device.pid == cdevParser.getPID().value();
+			return cdevParser.isRegularHidDevice() && cdevParser.getVID().value() == device.vid && device.pid == cdevParser.getPID().value();
 			});
         if (it != qmkData.usbSuppDevs.end()) {
 			std::vector<DeviceSupport> devsupport;
@@ -620,7 +621,7 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 					qmkData.curLayer = curLayer.value();
 
 					// todo check the preference for showing the layer switch
-					std::jthread timerThread2(WaitableTimerThread<decltype(LayerWindowSwitchCallback),
+					std::jthread timerThread2(CallbackThread<decltype(LayerWindowSwitchCallback),
 						int, std::string>, LayerWindowSwitchCallback, curLayer.value(), "QMK");
 				}
 			}

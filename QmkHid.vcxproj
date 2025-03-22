@@ -154,7 +154,7 @@
     <ClInclude Include="sqlite\sqlite3.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="DeviceNameWindow.h" />
-    <ClInclude Include="TimerHandler.h" />
+    <ClInclude Include="CallbackHandler.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="database.cpp" />

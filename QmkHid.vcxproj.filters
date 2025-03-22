@@ -42,7 +42,7 @@
     <ClInclude Include="DeviceNameWindow.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="TimerHandler.h">
+    <ClInclude Include="CallbackHandler.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="hidex.h">

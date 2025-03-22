@@ -34,6 +34,15 @@ public:
             return true;
         return false;
 	}
+	// Bluetooth Low Energy (BLE) UUID: we don't support at the moment
+    //devname = "\\\\?\\HID#{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B013_REV&0007_C4C4C279C660&COL03#B&2C603A6D&0&0002#{4D1E55B2-F16F-11CF-88CB-001111000030}"
+	bool isRegularHidDevice() {
+		// the minimal requirement
+		if (vid.has_value() && pid.has_value()) {
+			return true;
+		}
+		return false;
+	}
 
 private:
     std::optional<uint16_t> vid;
@@ -48,31 +57,62 @@ private:
         OutputDebugString(formatted_str.c_str());
     }
 
-    void parseDeviceName(const std::string& deviceName) {
+    bool parseDeviceName(const std::string& deviceName) {
         this->devname = deviceName;
-        std::transform(this->devname.begin(), this->devname.end(), this->devname.begin(), [](unsigned char c) { return std::toupper(c); });
 
-        std::vector<std::string> pieces = splitDeviceName(this->devname);
+		std::transform(this->devname.begin(), this->devname.end(), this->devname.begin(), [](unsigned char c) { return std::toupper(c); });
+		std::vector<std::string> pieces = splitDeviceName(this->devname);
+
+		std::regex uuidRegex(R"(\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\})");
+		std::smatch match;
+
+		// if device name start we a UUID we stop parsing -> BLE deivce
+        if (pieces.size() > 1 && std::regex_search(pieces[1], match, uuidRegex)) {
+			uint16_t vid = 0, pid = 0;
+			const auto& part = pieces[1];
+
+			std::regex vidRegex(R"(VID&([0-9a-fA-F]{4}))");
+			if (std::regex_search(part, match, vidRegex)) {
+				vid = std::stoi(match.str(1), nullptr, 16);
+			}
+
+			std::regex pidRegex(R"(PID&([0-9a-fA-F]{4}))");
+			if (std::regex_search(part, match, pidRegex)) {
+				pid = std::stoi(match.str(1), nullptr, 16);
+			}
+
+
+			// we don't support BLE device
+            return false;
+		}
+
 
         for (size_t i = 0; i < pieces.size(); ++i) {
             const auto& part = pieces[i];
+			std::smatch match;
 
-            if (part.find("VID_") != std::string::npos) {
-                vid = std::stoi(part.substr(part.find("VID_") + 4), nullptr, 16);
+			std::regex vidRegex(R"(VID_([0-9a-fA-F]{4}))");
+			if (std::regex_search(part, match, vidRegex)) {
+                vid = std::stoi(match.str(1), nullptr, 16);
             }
-            if (part.find("PID_") != std::string::npos) {
-                pid = std::stoi(part.substr(part.find("PID_") + 4), nullptr, 16);
-            }
-            auto pos = part.find("&MI_");
-            if (pos != std::string::npos) {
-                mi = part.substr(pos, 6); // Extract "&MI_01" or "&mi_01"
-            }
+			std::regex pidRegex(R"(PID_([0-9a-fA-F]{4}))");
+			if (std::regex_search(part, match, pidRegex)) {
+				pid = std::stoi(match.str(1), nullptr, 16);
+			}
+
+			std::regex miRegex(R"(&MI_([0-9a-fA-F]{2}))");
+			if (std::regex_search(part, match, miRegex)) {
+                mi = "&MI_" + match.str(1);
+			}
             if (i == 2) {
                 port = part;
             }
         }
+        if (isRegularHidDevice()) {
+            return true;
+        }
+        return false;
     }
-
     std::vector<std::string> splitDeviceName(const std::string& deviceName) {
         std::vector<std::string> pieces;
         std::stringstream ss(deviceName);
@@ -83,4 +123,5 @@ private:
         }
         return pieces;
     }
+
 };

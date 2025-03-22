@@ -409,8 +409,8 @@ bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& p
 
 	const char* updateSQL = R"(
         UPDATE Preferences
-        SET curLayer = ?, showTime = ?, showLayerSwitch = ?, windowPos = ?, traydev = ?, timestamp = CURRENT_TIMESTAMP
-        WHERE seqnr = ? AND timestamp != ?;
+        SET curLayer = ?, showTime = ?, showLayerSwitch = ?, windowPos = ?, traydev = ?, timestamp = ? 
+        WHERE seqnr = ?;
     )";
 
 	const char* selectTimestampSQL = R"(
@@ -504,10 +504,9 @@ bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& p
 					sqlite3_bind_int(updateStmt, 3, pref.showLayerSwitch);
 					sqlite3_bind_text(updateStmt, 4, pref.windowPos.c_str(), -1, SQLITE_STATIC);
 					sqlite3_bind_text(updateStmt, 5, pref.traydev.c_str(), -1, SQLITE_STATIC);
-					sqlite3_bind_int(updateStmt, 6, pref.seqnr);
-                    // get the actual timestamp
-                    dbTimestamp = stringex::getCurrentTimestamp();
-					sqlite3_bind_text(updateStmt, 7, dbTimestamp.c_str(), -1, SQLITE_STATIC);
+					sqlite3_bind_text(updateStmt, 6, pref.timestamp.c_str(), -1, SQLITE_STATIC);
+				    // where clause	
+                    sqlite3_bind_int(updateStmt, 7, pref.seqnr);
 
 					rc = sqlite3_step(updateStmt);
 					if (rc != SQLITE_DONE) {
@@ -520,7 +519,7 @@ bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& p
 					}
 
 					// Update the timestamp in the preference object
-					pref.timestamp = dbTimestamp;
+					pref.timestamp = pref.timestamp;
 
 					sqlite3_reset(updateStmt);
 				}

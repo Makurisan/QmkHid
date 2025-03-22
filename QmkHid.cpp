@@ -85,8 +85,8 @@ typedef struct _QMKHID {
     std::vector<DeviceSupport> dbSuppDevs; // active/inactive devices on the usb bus
     std::shared_ptr<sqlite3> sqLite;
     HICON iTrayIcon;
-    std::atomic<bool> winTimerActive;    
  // preferences
+    std::string currentdevice; // layerstate  trayicon/switchlayer: we save the port
     uint8_t curLayer; // Make curLayer atomic
     uint16_t showTime; // time to show the client window
     std::string windowPos; // serialized RECT, status window position
@@ -691,6 +691,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	if (devCount > 0) {
 		sqlite_get_devicesupport(qmkData.sqLite.get(), qmkData.dbSuppDevs);
         opened = OpenHidDevices(qmkData, qmkData.dbSuppDevs);
+        if (opened) {
+			msgpack_t msgpack = { 0 };
+			init_msgpack(&msgpack);
+			// wen want the current layer back from the keyboard
+			add_msgpack_add(&msgpack, MSGPACK_CURRENT_LAYER, 0);
+			make_msgpack(&msgpack, qmkData.hidData[0].writeData);
+			//read_msgpack(&msgpack, qmkData.hidData[0].writeData);
+            hid_write(*qmkData.hidData[0].hid, qmkData.hidData[0].writeData);
+        }
     }
 	else {
 		// Try to open the HID device initially

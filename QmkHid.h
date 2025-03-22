@@ -14,7 +14,7 @@ enum ProductType {
 };
 
 typedef struct _QMKHIDPREFERENCE {
-	USHORT seqnr;
+	uint32_t seqnr; // primary key
 	uint8_t curLayer;
 	uint16_t showTime;       // time to show the client window
 	uint8_t showLayerSwitch; // show layer switch in the client window

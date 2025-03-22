@@ -61,7 +61,7 @@ private:
     }
 
     bool parseDeviceName(const std::string& deviceName) {
-        this->devname =  StringEx::toUpper(deviceName);
+        this->devname =  stringex::toUpper(deviceName);
 		std::vector<std::string> pieces = splitDeviceName(this->devname);
 
 		std::smatch match;

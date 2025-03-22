@@ -29,7 +29,7 @@ typedef struct _HID {
 } HID;
 
 typedef struct _Support {
-	int seqnr; // primary key, dont use
+    uint32_t seqnr; // primary key
 	bool active; // 1 = active, 0 = inactive
 	std::string name; // display device name, e.g . QMK, StreamDeck
 	uint8_t type; // 0 = NoBoard, 1 = StreamDeck, 2 = QMK

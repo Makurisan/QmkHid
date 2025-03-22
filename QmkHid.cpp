@@ -443,11 +443,11 @@ void CreateChildWindow() {
 }
 
 std::optional<HIDData*> findMatchingPortDevice(QMKHID& qmkData, const std::string& deviceName) {
-    std::string upperDevName = StringEx::toUpper(deviceName);;
+    std::string upperDevName = stringex::toUpper(deviceName);;
 
     for (auto& hidData : qmkData.hidData) {
         if (hidData.hid->port.has_value()) {
-            std::string upperPort = StringEx::toUpper(*hidData.hid->port); ;
+            std::string upperPort = stringex::toUpper(*hidData.hid->port); ;
             std::transform(upperPort.begin(), upperPort.end(), upperPort.begin(), [](unsigned char c) { return std::toupper(c); });
             qmk_log("Hid port: {} == {}\n", upperPort, upperDevName);
             if (upperDevName.find(upperPort) != std::string::npos)
@@ -719,7 +719,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	// update preferences
     // timestamp format is ""
-    qmkData.pref.timestamp = StringEx::getCurrentTimestamp();
+    qmkData.pref.timestamp = stringex::getCurrentTimestamp();
 	qmkPreferences[0] = qmkData.pref;
 
 	sqlite_add_update_preferences(qmkData.sqLite.get(), qmkPreferences);

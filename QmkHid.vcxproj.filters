@@ -78,7 +78,7 @@
     <ClInclude Include="QmkHId.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="StringEx.h">
+    <ClInclude Include="stringex.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

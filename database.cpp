@@ -11,6 +11,12 @@
 #include <functional>
 #include <shlobj.h>
 #include <iostream>
+#include <filesystem>
+
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#include <unistd.h>
+#endif
 
 #include "hidex.h"
 #include "sqlite/sqlite3.h"
@@ -28,13 +34,27 @@ void sqlite_log(const std::string& format_str, auto&&... args) {
 
 
 std::optional<std::string> GetLocalAppDataFolder() {
-    char path[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, path))) {
-        return std::string(path);
-    }
-    else {
-        return std::nullopt;
-    }
+#ifdef _WIN32
+	char path[MAX_PATH];
+	if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, path))) {
+		return std::string(path);
+	}
+	else {
+		return std::nullopt;
+	}
+#elif __APPLE__
+	FSRef ref;
+	char path[PATH_MAX];
+	if (FSFindFolder(kUserDomain, kApplicationSupportFolderType, kCreateFolder, &ref) == noErr &&
+		FSRefMakePath(&ref, (UInt8*)path, sizeof(path)) == noErr) {
+		return std::string(path);
+	}
+	else {
+		return std::nullopt;
+	}
+#else
+	return std::nullopt;
+#endif
 }
 
 
@@ -476,8 +496,8 @@ bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& p
 			sqlite3_bind_int(selectTimestampStmt, 1, pref.seqnr);
 			rc = sqlite3_step(selectTimestampStmt);
 			if (rc == SQLITE_ROW) {
-				const char* dbTimestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectTimestampStmt, 0));
-				if (pref.timestamp != dbTimestamp) {
+				std::string dbTimestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectTimestampStmt, 0));
+				if (stringex::getTimePoint(pref.timestamp) > stringex::getTimePoint(dbTimestamp)) {
 					// Update existing entry
 					sqlite3_bind_int(updateStmt, 1, pref.curLayer);
 					sqlite3_bind_int(updateStmt, 2, pref.showTime);
@@ -486,8 +506,8 @@ bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& p
 					sqlite3_bind_text(updateStmt, 5, pref.traydev.c_str(), -1, SQLITE_STATIC);
 					sqlite3_bind_int(updateStmt, 6, pref.seqnr);
                     // get the actual timestamp
-                    std::string timestamp = StringEx::getCurrentTimestamp();
-					sqlite3_bind_text(updateStmt, 7, timestamp.c_str(), -1, SQLITE_STATIC);
+                    dbTimestamp = stringex::getCurrentTimestamp();
+					sqlite3_bind_text(updateStmt, 7, dbTimestamp.c_str(), -1, SQLITE_STATIC);
 
 					rc = sqlite3_step(updateStmt);
 					if (rc != SQLITE_DONE) {
@@ -589,19 +609,23 @@ bool sqlite_get_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& preferen
 
 // Function to open the database and ensure the DeviceSupport table exists
 bool sqlite_database_open(std::shared_ptr<sqlite3>& db) {
-    if (_db == nullptr) {
-        auto localAppDataOpt = GetLocalAppDataFolder();
-        if (!localAppDataOpt) {
-            sqlite_log("Failed to get local app data folder");
-            return false;
-        }
-        std::string dbPath = *localAppDataOpt + "\\QMK\\HID Tray\\HidTray.db";
-        int rc = sqlite3_open(dbPath.c_str(), &_db);
-        if (rc != SQLITE_OK) {
-            sqlite_log("Failed to open database");
-            return false;
-        }
-    }
+	if (_db == nullptr) {
+		auto localAppDataOpt = GetLocalAppDataFolder();
+		if (!localAppDataOpt) {
+			sqlite_log("Failed to get local app data folder");
+			return false;
+		}
+        std::string dbPath = *localAppDataOpt + "/QMK/HIDTray/";
+		// Create the directory if it does not exist
+		std::filesystem::create_directories(std::filesystem::path(dbPath).parent_path());
+        dbPath += std::string("/HidTray.db");
+
+		int rc = sqlite3_open(dbPath.c_str(), &_db);
+		if (rc != SQLITE_OK) {
+			sqlite_log("Failed to open database: {}", sqlite3_errmsg(_db));
+			return false;
+		}
+	}
 
     db = std::shared_ptr<sqlite3>(_db, [](sqlite3*) {
         // Do nothing

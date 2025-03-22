@@ -7,7 +7,7 @@
 #include <string>
 #include <algorithm>
 
-namespace StringEx {
+namespace stringex {
 	inline std::string toUpper(const std::string& str) {
 		std::string result = str;
 		std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::toupper(c); });
@@ -28,5 +28,10 @@ namespace StringEx {
 		oss << std::put_time(&now_tm, "%Y-%m-%d %H:%M:%S");
 		return oss.str();
 	}
-
+	inline std::chrono::system_clock::time_point getTimePoint(const std::string& timestamp) {
+		std::tm tm = {};
+		std::istringstream ss(timestamp);
+		ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+		return std::chrono::system_clock::from_time_t(std::mktime(&tm));
+	}
 }

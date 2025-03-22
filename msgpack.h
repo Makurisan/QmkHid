@@ -33,7 +33,7 @@
 // Define data structure
 typedef struct {
     uint8_t key;
-    uint8_t value;
+    uint16_t value;
     std::string name;
 } msgpack_pair_t;
 
@@ -43,9 +43,8 @@ typedef struct {
 } msgpack_t;
 
 std::optional<uint8_t> msgpack_getValue(msgpack_t* km, uint8_t key);
-bool add_msgpack_pair(msgpack_t *msgpack, uint8_t key, uint8_t value);
+bool add_msgpack_add(msgpack_t *msgpack, uint8_t key, uint16_t value);
 void init_msgpack(msgpack_t *msgpack);
-void send_msgpack(msgpack_t *msgpack);
 bool read_msgpack(msgpack_t* km, std::vector<uint8_t>& data);
 bool msgpack_log(msgpack_t* km);
 bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data);

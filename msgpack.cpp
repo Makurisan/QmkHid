@@ -29,7 +29,7 @@ void init_msgpack(msgpack_t * km) {
 }
 
 // Helper function to add a pair
-bool add_msgpack_pair(msgpack_t * km, uint8_t key, uint8_t value) {
+bool add_msgpack_add(msgpack_t * km, uint8_t key, uint16_t value) {
     if (km->count >= 10) return false;  // Array full
 
     km->pairs[km->count].key = key;
@@ -60,32 +60,6 @@ bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
         return true;
     }
     return false;
-}
-
-void send_msgpack(msgpack_t * km) {
-    char buffer[RAW_EPSIZE] = {0};
-    mpack_writer_t writer;
-
-    mpack_writer_init(&writer, buffer+1, sizeof(buffer)-1);
-
-    // Write format identifier string "MPACK"
-    mpack_write_cstr(&writer, "QMV1");
-
-    // Start writing map with number of pairs
-    mpack_start_map(&writer, km->count);
-    // Loop through all pairs
-    for (size_t i = 0; i < km->count; i++) {
-        mpack_write_uint(&writer, km->pairs[i].key);
-        mpack_write_uint(&writer, km->pairs[i].value);
-    }
-
-    mpack_finish_map(&writer);
-    mpack_finish_array(&writer);
-
-    if (mpack_writer_destroy(&writer) == mpack_ok) {
-        //raw_hid_send((uint8_t*)buffer, RAW_EPSIZE);
-        printf("Sent %d key-value pairs\n", km->count);
-    }
 }
 
 bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
@@ -121,7 +95,7 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     for (uint32_t i = 0; i < count; i++) {
         uint8_t key = mpack_expect_uint(&reader);
         uint8_t value = mpack_expect_uint(&reader);
-        add_msgpack_pair(km, key, value);
+        add_msgpack_add(km, key, value);
     }
 
     mpack_done_map(&reader);

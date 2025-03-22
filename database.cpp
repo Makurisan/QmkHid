@@ -14,6 +14,7 @@
 
 #include "hidex.h"
 #include "sqlite/sqlite3.h"
+#include "stringex.h"
 #include "qmkhid.h"
 #include "database.h"
 
@@ -380,6 +381,212 @@ bool sqlite_create_devicesupport(sqlite3* db) {
     return true;
 }
 
+bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& preferences) {
+	const char* insertSQL = R"(
+        INSERT INTO Preferences (curLayer, showTime, showLayerSwitch, windowPos, traydev)
+        VALUES (?, ?, ?, ?, ?);
+    )";
+
+	const char* updateSQL = R"(
+        UPDATE Preferences
+        SET curLayer = ?, showTime = ?, showLayerSwitch = ?, windowPos = ?, traydev = ?, timestamp = CURRENT_TIMESTAMP
+        WHERE seqnr = ? AND timestamp != ?;
+    )";
+
+	const char* selectTimestampSQL = R"(
+        SELECT timestamp FROM Preferences WHERE seqnr = ?;
+    )";
+
+	sqlite3_stmt* insertStmt;
+	sqlite3_stmt* updateStmt;
+	sqlite3_stmt* selectTimestampStmt;
+	int rc = sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to prepare insert statement: {}", sqlite3_errmsg(db));
+		return false;
+	}
+
+	rc = sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to prepare update statement: {}", sqlite3_errmsg(db));
+		sqlite3_finalize(insertStmt);
+		return false;
+	}
+
+	rc = sqlite3_prepare_v2(db, selectTimestampSQL, -1, &selectTimestampStmt, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to prepare select timestamp statement: {}", sqlite3_errmsg(db));
+		sqlite3_finalize(insertStmt);
+		sqlite3_finalize(updateStmt);
+		return false;
+	}
+
+	// Begin transaction
+	rc = sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to begin transaction: {}", sqlite3_errmsg(db));
+		sqlite3_finalize(insertStmt);
+		sqlite3_finalize(updateStmt);
+		sqlite3_finalize(selectTimestampStmt);
+		return false;
+	}
+
+	for (auto& pref : preferences) {
+		if (pref.seqnr == 0) {
+			// Insert new entry
+			sqlite3_bind_int(insertStmt, 1, pref.curLayer);
+			sqlite3_bind_int(insertStmt, 2, pref.showTime);
+			sqlite3_bind_int(insertStmt, 3, pref.showLayerSwitch);
+			sqlite3_bind_text(insertStmt, 4, pref.windowPos.c_str(), -1, SQLITE_STATIC);
+			sqlite3_bind_text(insertStmt, 5, pref.traydev.c_str(), -1, SQLITE_STATIC);
+
+			rc = sqlite3_step(insertStmt);
+			if (rc != SQLITE_DONE) {
+				sqlite_log("Failed to insert data: {}", sqlite3_errmsg(db));
+				sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+				sqlite3_finalize(insertStmt);
+				sqlite3_finalize(updateStmt);
+				sqlite3_finalize(selectTimestampStmt);
+				return false;
+			}
+
+			// Update seqnr with the last inserted row ID
+			pref.seqnr = static_cast<USHORT>(sqlite3_last_insert_rowid(db));
+
+			// Retrieve the timestamp of the newly inserted row
+			sqlite3_bind_int(selectTimestampStmt, 1, pref.seqnr);
+			rc = sqlite3_step(selectTimestampStmt);
+			if (rc == SQLITE_ROW) {
+				pref.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectTimestampStmt, 0));
+			}
+			else {
+				sqlite_log("Failed to retrieve timestamp: {}", sqlite3_errmsg(db));
+				sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+				sqlite3_finalize(insertStmt);
+				sqlite3_finalize(updateStmt);
+				sqlite3_finalize(selectTimestampStmt);
+				return false;
+			}
+
+			sqlite3_reset(insertStmt);
+			sqlite3_reset(selectTimestampStmt);
+		}
+		else {
+			// Check if timestamp has changed
+			sqlite3_bind_int(selectTimestampStmt, 1, pref.seqnr);
+			rc = sqlite3_step(selectTimestampStmt);
+			if (rc == SQLITE_ROW) {
+				const char* dbTimestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectTimestampStmt, 0));
+				if (pref.timestamp != dbTimestamp) {
+					// Update existing entry
+					sqlite3_bind_int(updateStmt, 1, pref.curLayer);
+					sqlite3_bind_int(updateStmt, 2, pref.showTime);
+					sqlite3_bind_int(updateStmt, 3, pref.showLayerSwitch);
+					sqlite3_bind_text(updateStmt, 4, pref.windowPos.c_str(), -1, SQLITE_STATIC);
+					sqlite3_bind_text(updateStmt, 5, pref.traydev.c_str(), -1, SQLITE_STATIC);
+					sqlite3_bind_int(updateStmt, 6, pref.seqnr);
+                    // get the actual timestamp
+                    std::string timestamp = StringEx::getCurrentTimestamp();
+					sqlite3_bind_text(updateStmt, 7, timestamp.c_str(), -1, SQLITE_STATIC);
+
+					rc = sqlite3_step(updateStmt);
+					if (rc != SQLITE_DONE) {
+						sqlite_log("Failed to update data: {}", sqlite3_errmsg(db));
+						sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+						sqlite3_finalize(insertStmt);
+						sqlite3_finalize(updateStmt);
+						sqlite3_finalize(selectTimestampStmt);
+						return false;
+					}
+
+					// Update the timestamp in the preference object
+					pref.timestamp = dbTimestamp;
+
+					sqlite3_reset(updateStmt);
+				}
+			}
+			sqlite3_reset(selectTimestampStmt);
+		}
+	}
+
+	// Commit transaction
+	rc = sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to commit transaction: {}", sqlite3_errmsg(db));
+		sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+		sqlite3_finalize(insertStmt);
+		sqlite3_finalize(updateStmt);
+		sqlite3_finalize(selectTimestampStmt);
+		return false;
+	}
+
+	sqlite3_finalize(insertStmt);
+	sqlite3_finalize(updateStmt);
+	sqlite3_finalize(selectTimestampStmt);
+	return true;
+}
+
+bool sqlite_create_preferences(sqlite3* db) {
+	const char* createTableSQL = R"(
+        CREATE TABLE IF NOT EXISTS Preferences (
+            seqnr INTEGER PRIMARY KEY AUTOINCREMENT,
+            curLayer INTEGER NOT NULL,
+            showTime INTEGER NOT NULL,
+            showLayerSwitch INTEGER NOT NULL,
+            windowPos TEXT,
+            traydev TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    )";
+
+	char* errMsg = nullptr;
+	int rc = sqlite3_exec(db, createTableSQL, nullptr, nullptr, &errMsg);
+	if (rc != SQLITE_OK) {
+		std::string errorMessage = "SQL error: " + std::string(errMsg);
+		sqlite_log(errorMessage);
+		sqlite3_free(errMsg);
+		return false;
+	}
+	return true;
+}
+
+bool sqlite_get_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& preferences) {
+	const char* selectSQL = R"(
+        SELECT seqnr, curLayer, showTime, showLayerSwitch, windowPos, traydev, timestamp
+        FROM Preferences;
+    )";
+
+	sqlite3_stmt* stmt;
+	int rc = sqlite3_prepare_v2(db, selectSQL, -1, &stmt, nullptr);
+	if (rc != SQLITE_OK) {
+		sqlite_log("Failed to prepare statement: {}", sqlite3_errmsg(db));
+		return false;
+	}
+
+	preferences.clear();
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		QMKHIDPREFERENCE pref;
+		pref.seqnr = sqlite3_column_int(stmt, 0);
+		pref.curLayer = static_cast<uint8_t>(sqlite3_column_int(stmt, 1));
+		pref.showTime = static_cast<uint8_t>(sqlite3_column_int(stmt, 2));
+		pref.showLayerSwitch = static_cast<uint8_t>(sqlite3_column_int(stmt, 3));
+		pref.windowPos = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+		pref.traydev = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+	    pref.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)); 
+
+		preferences.push_back(pref);
+	}
+
+	if (rc != SQLITE_DONE) {
+		sqlite_log("Failed to retrieve data: {}", sqlite3_errmsg(db));
+		sqlite3_finalize(stmt);
+		return false;
+	}
+
+	sqlite3_finalize(stmt);
+	return true;
+}
+
 // Function to open the database and ensure the DeviceSupport table exists
 bool sqlite_database_open(std::shared_ptr<sqlite3>& db) {
     if (_db == nullptr) {
@@ -400,11 +607,17 @@ bool sqlite_database_open(std::shared_ptr<sqlite3>& db) {
         // Do nothing
         });
 
-    if (!sqlite_tableExists(db.get(), "DeviceSupport")) {
-        if (!sqlite_create_devicesupport(db.get())) {
-            sqlite_log("Failed to create DeviceSupport table");
-            return false;
-        }
-    }
+	if (!sqlite_tableExists(db.get(), "Preferences")) {
+		if (!sqlite_create_preferences(db.get())) {
+			sqlite_log("Failed to create Preferences table");
+			return false;
+		}
+	}
+	if (!sqlite_tableExists(db.get(), "DeviceSupport")) {
+		if (!sqlite_create_devicesupport(db.get())) {
+			sqlite_log("Failed to create DeviceSupport table");
+			return false;
+		}
+	}
     return true;
 }

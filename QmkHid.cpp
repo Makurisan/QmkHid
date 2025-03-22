@@ -49,35 +49,21 @@ using namespace std::chrono;
 #define STMDECK_VID 0x0fd9
 #define STMDECK_PID 0x0080
 
-typedef struct _StreamDeckHIDIn {
-    uint8_t reportID[4]; // Report ID to identify the report type
-    uint8_t buttonStates[15]; // Button states (adjust size as needed)
-} StreamDeckHIDIn;
-
-enum ProductType {
-    NoBoard = 0,
-    StreamDeck,
-    QMK
+// default template
+QMKHIDPREFERENCE _qmkPreference = {
+	.seqnr = 0,
+	.curLayer = 0,
+	.showTime = 2000, // Default time to show the client window
+	.showLayerSwitch = 1, // Default to show layer switch in the client window
+	.windowPos = "0,0,100,100", // Default window position (example values)
+#ifdef _DEBUG
+	.traydev = "a&55b843f&0&" // port which shows his state e.g. "a&55b843f&0&"
+#else
+	.traydev = "" // port which shows his state e.g. "a&55b843f&0&"
+#endif
 };
 
-typedef struct _HIDData {
-    uint32_t seqnr;
-    uint8_t type;
-    std::shared_ptr<HID> hid;
-	std::vector<uint8_t> readData;
-	std::vector<uint8_t> writeData;
-    uint8_t curLayer;// current layer if qmk sends it
-    uint16_t curKey;   // last key pressed
-}HIDData;
-
-typedef struct _QMKHIDPREFERENCE {
-	USHORT seqnr;
-    uint8_t curLayer;
-	uint8_t showTime;       // time to show the client window
-	uint8_t showLayerSwitch; // show layer switch in the client window
-    std::string windowPos; // serialized RECT, status window position
-	std::string traydev; // USB device which shows its state in the tray
-}QMKHIDPREFERENCE;
+std::vector<QMKHIDPREFERENCE> qmkPreferences;
 
 typedef struct _QMKHID {
     std::vector<HIDData> hidData;
@@ -86,11 +72,7 @@ typedef struct _QMKHID {
     std::shared_ptr<sqlite3> sqLite;
     HICON iTrayIcon;
  // preferences
-    std::string currentdevice; // layerstate  trayicon/switchlayer: we save the port
-    uint8_t curLayer; // Make curLayer atomic
-    uint16_t showTime; // time to show the client window
-    std::string windowPos; // serialized RECT, status window position
-    uint8_t showLayerSwitch; // show layer switch in the client window
+    QMKHIDPREFERENCE pref;
 }QMKHID;
 
 
@@ -105,6 +87,7 @@ QMKHID qmkData = {
     .dbSuppDevs = {},
     .iTrayIcon = nullptr,
 };
+
 
 NOTIFYICONDATA nid;
 HWND hTrayWnd;
@@ -187,7 +170,7 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
     nid.hIcon = qmkData.hidData.size()?
-        CreateIconWithNumber(qmkData.curLayer, IsDarkTheme()) : qmkData.iTrayIcon;
+        CreateIconWithNumber(qmkData.pref.curLayer, IsDarkTheme()) : qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -215,7 +198,7 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
     }
     else {
         // Load the standard application icon
-        qmkData.iTrayIcon = CreateIconWithNumber(qmkData.curLayer, IsDarkTheme());
+        qmkData.iTrayIcon = CreateIconWithNumber(qmkData.pref.curLayer, IsDarkTheme());
     }
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
@@ -235,7 +218,7 @@ void LayerWindowSwitchCallback(std::string devname, uint8_t curlayer,  uint8_t m
         ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
         InvalidateRect(hChildWnd, NULL, TRUE);
        // Set a timer to hide the window
-        SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
+        SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.pref.showTime, NULL);
     }
     UpdateTrayIcon();
 }
@@ -390,7 +373,7 @@ LRESULT CALLBACK ChildWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         SetBkMode(hdcMem, TRANSPARENT);
 
         // Specify the text to draw
-        std::string text = "FootSwitch\nLayer: " + std::to_string(qmkData.curLayer);
+        std::string text = "FootSwitch\nLayer: " + std::to_string(qmkData.pref.curLayer);
 
         // Calculate the text rectangle
         RECT textRect = rect;
@@ -630,7 +613,7 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
                                 MSGPACK_CHANGED_LAYER : MSGPACK_CURRENT_LAYER;
                     auto curLayer = msgpack_getValue(&km, msg);
 
-                    hidData.curLayer = qmkData.curLayer = (uint8_t)curLayer.value();
+                    hidData.curLayer = qmkData.pref.curLayer = (uint8_t)curLayer.value();
                     
 					// todo check the preference for showing the layer switch
 					std::jthread timerThread2(CallbackThread<decltype(LayerWindowSwitchCallback),
@@ -708,10 +691,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		OpenHidDevices(qmkData, sysDeviceSupp);
         sqlite_add_update_devicesupport(qmkData.sqLite.get(), sysDeviceSupp);
     }
-    //sqlite_store_devicesupport(qmkData.sqLite.get(), allowedOpen);
-    
-	// preferences
-	qmkData.showTime = 2000;
+
+    auto tabCount = sqlite_tableCount(qmkData.sqLite.get(), "Preferences");
+    if (tabCount <= 0) {
+        qmkPreferences.push_back(_qmkPreference);
+        sqlite_add_update_preferences(qmkData.sqLite.get(), qmkPreferences);
+    }
+    else {
+        sqlite_get_preferences(qmkData.sqLite.get(), qmkPreferences);
+    }
+	qmkData.pref = qmkPreferences[0];
 
     // Message loop
     MSG msg;
@@ -727,6 +716,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
         Sleep(10); // Sleep for 100 ms
     }
+
+	// update preferences
+    // timestamp format is ""
+    qmkData.pref.timestamp = StringEx::getCurrentTimestamp();
+	qmkPreferences[0] = qmkData.pref;
+
+	sqlite_add_update_preferences(qmkData.sqLite.get(), qmkPreferences);
+
 
     Shell_NotifyIcon(NIM_DELETE, &nid);
     for (auto& hidData : qmkData.hidData) {

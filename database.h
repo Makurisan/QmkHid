@@ -20,6 +20,11 @@ bool sqlite_database_open(std::shared_ptr<sqlite3>& db);
 bool executeSQL(sqlite3* db, const char* sql);
 bool sqlite_tableExists(sqlite3* db, const std::string& tableName);
 bool sqlite_create_devicesupport(sqlite3* db);
+
+bool sqlite_create_preferences(sqlite3* db);
+bool sqlite_add_update_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& preferences);
+bool sqlite_get_preferences(sqlite3* db, std::vector<QMKHIDPREFERENCE>& preferences);
+
 int sqlite_tableCount(sqlite3* db, const std::string& tableName);
 
 bool sqlite_store_devicesupport(sqlite3* db, const std::vector<DeviceSupport>& devices);

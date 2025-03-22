@@ -1,5 +1,8 @@
 #pragma once
-
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #include <iostream>
 #include <string>
 #include <algorithm>
@@ -15,4 +18,15 @@ namespace StringEx {
 		std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
 		return result;
 	}
+	inline std::string getCurrentTimestamp() {
+		auto now = std::chrono::system_clock::now();
+		std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+		std::tm now_tm;
+		localtime_s(&now_tm, &now_time);
+
+		std::ostringstream oss;
+		oss << std::put_time(&now_tm, "%Y-%m-%d %H:%M:%S");
+		return oss.str();
+	}
+
 }

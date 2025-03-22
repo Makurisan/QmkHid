@@ -529,8 +529,9 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             case ID_TRAY_WRITE: {
                 msgpack_t msgpack = {0};
                 init_msgpack(&msgpack);
-                add_msgpack_add(&msgpack, MSGPACK_CURRENT_LAYER, 0);
+                add_msgpack_add(&msgpack, MSGPACK_CURRENT_GETLAYER, -77);
 				make_msgpack(&msgpack, qmkData.hidData[0].writeData);
+                read_msgpack(&msgpack, qmkData.hidData[0].writeData);
                 if (hid_write(*qmkData.hidData[0].hid, qmkData.hidData[0].writeData)) {
                     ShowNotification(qmkData.hidData[0], "HID Write", "Data written successfully");
                 }

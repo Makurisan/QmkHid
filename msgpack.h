@@ -21,10 +21,11 @@
 #include <string>
 #include <optional>
 
-#define MSGPACK_UNKNOWN         0   
-#define MSGPACK_CURRENT_KEYCODE 1
-#define MSGPACK_CURRENT_LAYER   2
-#define MSGPACK_CURRENT_LEDSTATE 3
+#define MSGPACK_UNKNOWN             0
+#define MSGPACK_CURRENT_KEYCODE     1
+#define MSGPACK_CURRENT_LAYER       2
+#define MSGPACK_CURRENT_GETLAYER    3
+#define MSGPACK_CURRENT_LEDSTATE    4
 
 
 #define MSGPACK_PAIR_ARRAY_SIZE 10
@@ -33,7 +34,7 @@
 // Define data structure
 typedef struct {
     uint8_t key;
-    uint16_t value;
+    int16_t value;
     std::string name;
 } msgpack_pair_t;
 

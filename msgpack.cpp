@@ -51,7 +51,7 @@ bool make_msgpack(msgpack_t* km, std::vector<uint8_t>& data) {
     // Loop through all pairs
     for (size_t i = 0; i < km->count; i++) {
         mpack_write_uint(&writer, km->pairs[i].key);
-        mpack_write_uint(&writer, km->pairs[i].value);
+        mpack_write_int(&writer, km->pairs[i].value);
     }
 
     mpack_finish_map(&writer);
@@ -94,10 +94,10 @@ bool read_msgpack(msgpack_t * km, std::vector<uint8_t>& data) {
     // Read all key-value pairs
     for (uint32_t i = 0; i < count; i++) {
         uint8_t key = mpack_expect_uint(&reader);
-        uint8_t value = mpack_expect_uint(&reader);
+        int16_t value= mpack_expect_int(&reader);
         add_msgpack_add(km, key, value);
     }
-
+    
     mpack_done_map(&reader);
     printf("Received %d key-value pairs\n", km->count);
     mpack_reader_destroy(&reader);

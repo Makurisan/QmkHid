@@ -43,7 +43,10 @@ public:
 		}
 		return false;
 	}
-
+	bool isValidPort(const std::string& port) const {
+		std::regex portRegex(R"(([0-9A-Fa-f]+)&([0-9A-Fa-f]+)&([0-9A-Fa-f]+)&([0-9A-Fa-f]+))");
+		return std::regex_match(port, portRegex);
+	}
 private:
     std::optional<uint16_t> vid;
     std::optional<uint16_t> pid;
@@ -63,10 +66,10 @@ private:
 		std::transform(this->devname.begin(), this->devname.end(), this->devname.begin(), [](unsigned char c) { return std::toupper(c); });
 		std::vector<std::string> pieces = splitDeviceName(this->devname);
 
-		std::regex uuidRegex(R"(\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\})");
 		std::smatch match;
+		std::regex uuidRegex(R"(\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\})");
 
-		// if device name start we a UUID we stop parsing -> BLE deivce
+		// if device name start with a UUID we stop parsing -> BLE device
         if (pieces.size() > 1 && std::regex_search(pieces[1], match, uuidRegex)) {
 			uint16_t vid = 0, pid = 0;
 			const auto& part = pieces[1];
@@ -80,12 +83,9 @@ private:
 			if (std::regex_search(part, match, pidRegex)) {
 				pid = std::stoi(match.str(1), nullptr, 16);
 			}
-
-
 			// we don't support BLE device
             return false;
 		}
-
 
         for (size_t i = 0; i < pieces.size(); ++i) {
             const auto& part = pieces[i];
@@ -105,6 +105,7 @@ private:
                 mi = "&MI_" + match.str(1);
 			}
             if (i == 2) {
+                auto val = isValidPort(part);
                 port = part;
             }
         }

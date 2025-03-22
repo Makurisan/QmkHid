@@ -152,6 +152,7 @@
     <ClInclude Include="QmkHId.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="sqlite\sqlite3.h" />
+    <ClInclude Include="StringEx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="DeviceNameWindow.h" />
     <ClInclude Include="CallbackHandler.h" />

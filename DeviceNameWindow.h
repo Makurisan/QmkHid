@@ -7,7 +7,7 @@
 #include <sstream>
 #include <iostream>
 #include <format>
-#include <windows.h>
+#include "StringEx.h"
 
 class DeviceNameParser {
 public:
@@ -61,9 +61,7 @@ private:
     }
 
     bool parseDeviceName(const std::string& deviceName) {
-        this->devname = deviceName;
-
-		std::transform(this->devname.begin(), this->devname.end(), this->devname.begin(), [](unsigned char c) { return std::toupper(c); });
+        this->devname =  StringEx::toUpper(deviceName);
 		std::vector<std::string> pieces = splitDeviceName(this->devname);
 
 		std::smatch match;

@@ -87,8 +87,8 @@ typedef struct _QMKHID {
     HICON iTrayIcon;
     std::atomic<bool> winTimerActive;    
  // preferences
-    std::atomic<USHORT> curLayer; // Make curLayer atomic
-    USHORT showTime; // time to show the client window
+    uint8_t curLayer; // Make curLayer atomic
+    uint16_t showTime; // time to show the client window
     std::string windowPos; // serialized RECT, status window position
     uint8_t showLayerSwitch; // show layer switch in the client window
 }QMKHID;
@@ -187,7 +187,7 @@ HICON CreateIconWithNumber(int number, bool darkTheme) {
 void UpdateTrayIcon() {
     nid.uFlags = NIF_ICON; // Set the flag to update only the icon
     nid.hIcon = qmkData.hidData.size()?
-        CreateIconWithNumber(qmkData.curLayer.load(), IsDarkTheme()) : qmkData.iTrayIcon;
+        CreateIconWithNumber(qmkData.curLayer, IsDarkTheme()) : qmkData.iTrayIcon;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -215,7 +215,7 @@ void ShowNotification(const HIDData& hidData,const char* title, const char* mess
     }
     else {
         // Load the standard application icon
-        qmkData.iTrayIcon = CreateIconWithNumber(qmkData.curLayer.load(), IsDarkTheme());
+        qmkData.iTrayIcon = CreateIconWithNumber(qmkData.curLayer, IsDarkTheme());
     }
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
@@ -230,9 +230,9 @@ void LayerWindowSwitchCallback(int curlayer, const std::string& type) {
 	// Kill running timer
 	KillTimer(hChildWnd, IDT_HIDE_WINDOW);
 
-    InvalidateRect(hChildWnd, NULL, TRUE);
     ShowWindow(hChildWnd, SW_SHOWNOACTIVATE);
-    // Set a timer to hide the window
+    InvalidateRect(hChildWnd, NULL, TRUE);
+   // Set a timer to hide the window
     SetTimer(hTrayWnd, IDT_HIDE_WINDOW, qmkData.showTime, NULL);
     UpdateTrayIcon();
 }
@@ -457,12 +457,11 @@ void CreateChildWindow() {
 }
 
 std::optional<HIDData*> findMatchingPortDevice(QMKHID& qmkData, const std::string& deviceName) {
-    std::string upperDevName = deviceName;
-    std::transform(upperDevName.begin(), upperDevName.end(), upperDevName.begin(), [](unsigned char c) { return std::toupper(c); });
+    std::string upperDevName = StringEx::toUpper(deviceName);;
 
     for (auto& hidData : qmkData.hidData) {
         if (hidData.hid->port.has_value()) {
-            std::string upperPort = *hidData.hid->port;
+            std::string upperPort = StringEx::toUpper(*hidData.hid->port); ;
             std::transform(upperPort.begin(), upperPort.end(), upperPort.begin(), [](unsigned char c) { return std::toupper(c); });
             qmk_log("Hid port: {} == {}\n", upperPort, upperDevName);
             if (upperDevName.find(upperPort) != std::string::npos)
@@ -528,6 +527,10 @@ LRESULT CALLBACK TrayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
             case ID_TRAY_WRITE: {
+                msgpack_t msgpack = {0};
+                init_msgpack(&msgpack);
+                add_msgpack_add(&msgpack, MSGPACK_CURRENT_LAYER, 0);
+				make_msgpack(&msgpack, qmkData.hidData[0].writeData);
                 if (hid_write(*qmkData.hidData[0].hid, qmkData.hidData[0].writeData)) {
                     ShowNotification(qmkData.hidData[0], "HID Write", "Data written successfully");
                 }
@@ -613,7 +616,6 @@ void readCallback(HID& hid, const std::vector<uint8_t>& data, void* userData) {
 		else if (hidData.type == QMK) {
 			msgpack_t km;
 			if (read_msgpack(&km, hidData.readData)) {
-				make_msgpack(&km, hidData.writeData);
 				msgpack_log(&km);
 
 				auto curLayer = msgpack_getValue(&km, MSGPACK_CURRENT_LAYER);
